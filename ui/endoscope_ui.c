@@ -413,6 +413,42 @@ static void create_patient_dialog(void)
     lv_obj_set_style_pad_hor(txt_age, 16, 0);
     lv_obj_add_event_cb(txt_age, patient_ta_event_cb, LV_EVENT_FOCUSED, (void *)(intptr_t)LV_KEYBOARD_MODE_NUMBER);
 
+    lv_obj_t * btn_row = lv_obj_create(patient_dialog);
+    lv_obj_set_size(btn_row, 720, 64);
+    lv_obj_align(btn_row, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_bg_color(btn_row, UI_COLOR_SURFACE, 0);
+    lv_obj_set_style_border_width(btn_row, 0, 0);
+    lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_row, 80, 0);
+
+    lv_obj_t * btn_confirm = lv_btn_create(btn_row);
+    lv_obj_set_size(btn_confirm, 140, 48);
+    lv_obj_set_style_bg_color(btn_confirm, UI_COLOR_PRIMARY, 0);
+    lv_obj_set_style_radius(btn_confirm, 24, 0);
+    lv_obj_set_style_pad_all(btn_confirm, 0, 0);
+    lv_obj_add_event_cb(btn_confirm, patient_dialog_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+
+    lv_obj_t * lbl_confirm = lv_label_create(btn_confirm);
+    lv_label_set_text(lbl_confirm, _TR("DLG_OK"));
+    UI_SET_FONT(lbl_confirm);
+    lv_obj_set_style_text_color(lbl_confirm, lv_color_white(), 0);
+    lv_obj_center(lbl_confirm);
+
+    lv_obj_t * btn_cancel = lv_btn_create(btn_row);
+    lv_obj_set_size(btn_cancel, 140, 48);
+    lv_obj_set_style_bg_color(btn_cancel, lv_color_hex(0x5a6a7a), 0);
+    lv_obj_set_style_radius(btn_cancel, 24, 0);
+    lv_obj_set_style_pad_all(btn_cancel, 0, 0);
+    lv_obj_add_event_cb(btn_cancel, patient_dialog_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)0);
+
+    lv_obj_t * lbl_cancel = lv_label_create(btn_cancel);
+    lv_label_set_text(lbl_cancel, _TR("DLG_CANCEL"));
+    UI_SET_FONT(lbl_cancel);
+    lv_obj_set_style_text_color(lbl_cancel, lv_color_white(), 0);
+    lv_obj_center(lbl_cancel);
+
     patient_ime = lv_ime_pinyin_create(patient_overlay);
     lv_obj_set_style_text_font(patient_ime, font_manager_get_font(), 0);
 
