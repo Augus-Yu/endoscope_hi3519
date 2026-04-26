@@ -1,0 +1,39 @@
+# Hi3519AV100 Endoscope UI - Git Ignore File
+# Build artifacts
+obj/
+bin/
+build/
+*.o
+*.a
+*.so
+*.elf
+
+# Dependencies
+*.d
+*.dep
+
+# Map files
+*.map
+
+# Binary output
+endoscope_ui
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.user
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.orig
+
+# Log files
+*.log
