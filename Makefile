@@ -14,10 +14,10 @@ SIZE := $(CROSS_COMPILE)size
 #===============================================================================
 # 路径配置
 #===============================================================================
-# MPP SDK路径
-MPP_PATH := /home/ydy/Hi3519AV100_SDK_V2.0.2.0/smp/a53_linux/mpp
-MPP_LIB := $(MPP_PATH)/lib
-MPP_INC := $(MPP_PATH)/include
+# MPP SDK路径（本地拷贝，无外部依赖）
+HI3519_SDK_DIR := hi3519_sdk
+MPP_LIB := $(HI3519_SDK_DIR)/lib
+MPP_INC := $(HI3519_SDK_DIR)/include
 
 # 项目路径
 LVGL_DIR := ../lvgl
@@ -47,8 +47,15 @@ PORT_SRCS := $(wildcard $(PORT_DIR)/*.c)
 # 主程序
 MAIN_SRC := main.c
 
+# SDK sample common 源码
+SDK_SRCS := $(HI3519_SDK_DIR)/sample/common/sample_comm_vi.c \
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_vo.c \
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_vpss.c \
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_sys.c \
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_isp.c
+
 # 所有源文件
-ALL_SRCS := $(LVGL_SRCS) $(LVGL_DEMOS) $(UI_SRCS) $(PORT_SRCS) $(MAIN_SRC)
+ALL_SRCS := $(LVGL_SRCS) $(LVGL_DEMOS) $(UI_SRCS) $(PORT_SRCS) $(SDK_SRCS) $(MAIN_SRC)
 
 #===============================================================================
 # 对象文件 - 简单替换: .c -> .o 并加上obj前缀
@@ -69,7 +76,7 @@ INCS += -I$(LVGL_DIR)/src
 INCS += -I$(MPP_INC)
 INCS += -I$(UI_DIR)
 INCS += -I$(PORT_DIR)
-INCS += -I$(MPP_PATH)/sample/common
+INCS += -I$(HI3519_SDK_DIR)/sample/common
 
 #===============================================================================
 # 编译标志 - 参考SDK设置
@@ -87,6 +94,12 @@ CFLAGS += -DLV_CONF_INCLUDE_SIMPLE
 CFLAGS += -DLV_LVGL_H_INCLUDE_SIMPLE
 CFLAGS += -D_GNU_SOURCE
 CFLAGS += -std=gnu99
+# SDK sample common 传感器类型宏（用于编译 sample_comm_*.c）
+CFLAGS += -DSENSOR0_TYPE=OV_OV9734_MIPI_1M_30FPS
+CFLAGS += -DSENSOR1_TYPE=OV_OV6946_DC_1M_30FPS
+CFLAGS += -DSENSOR2_TYPE=SONY_IMX290_SLAVE_MIPI_2M_60FPS_10BIT
+CFLAGS += -DSENSOR3_TYPE=SONY_IMX290_SLAVE_MIPI_2M_60FPS_10BIT
+CFLAGS += -DSENSOR4_TYPE=SONY_IMX334_MIPI_8M_30FPS_12BIT
 
 # C++标志
 CXXFLAGS := $(CFLAGS)
@@ -132,13 +145,6 @@ AUDIO_LIBS += $(MPP_LIB)/libdnvqe.a
 # 安全库
 SECURE_LIBS := $(MPP_LIB)/libsecurec.a
 
-# SDK sample_common 对象文件（提供 SAMPLE_COMM_* 函数）
-SAMPLE_COMMON := $(MPP_PATH)/sample/common/sample_comm_vi.o \
-                 $(MPP_PATH)/sample/common/sample_comm_vo.o \
-                 $(MPP_PATH)/sample/common/sample_comm_vpss.o \
-                 $(MPP_PATH)/sample/common/sample_comm_sys.o \
-                 $(MPP_PATH)/sample/common/sample_comm_isp.o
-
 # 所有库（用start-group/end-group解决依赖顺序）
 ALL_LIBS := $(MPI_LIBS) $(ISP_LIBS) $(SNS_LIBS) $(AUDIO_LIBS) $(SECURE_LIBS)
 
@@ -146,10 +152,10 @@ ALL_LIBS := $(MPI_LIBS) $(ISP_LIBS) $(SNS_LIBS) $(AUDIO_LIBS) $(SECURE_LIBS)
 # VPATH - 告诉make在哪里找源文件
 #===============================================================================
 VPATH := $(LVGL_DIR)/src:$(LVGL_DIR)/demos:$(UI_DIR):$(PORT_DIR):.
-
-# 子目录VPATH（递归添加）
 VPATH += $(shell find $(LVGL_DIR)/src -type d 2>/dev/null | tr '\n' ':')
 VPATH += $(shell find $(LVGL_DIR)/demos -type d 2>/dev/null | tr '\n' ':')
+VPATH += $(HI3519_SDK_DIR)/sample/common
+
 
 #===============================================================================
 # 编译规则
@@ -163,7 +169,7 @@ all: $(BIN_DIR)/$(TARGET)
 # 链接目标
 $(BIN_DIR)/$(TARGET): $(OBJS)
 	@echo "Linking $@..."
-	$(CC) $(LDFLAGS) -o $@ $^ $(SAMPLE_COMMON) \
+	$(CC) $(LDFLAGS) -o $@ $^ \
 		-Wl,--start-group $(ALL_LIBS) -Wl,--end-group
 	@echo "Build complete: $@"
 	$(SIZE) $@
@@ -188,6 +194,12 @@ $(OBJ_DIR)/$(UI_DIR)/%.o: $(UI_DIR)/%.c
 
 # 编译规则: Port源码
 $(OBJ_DIR)/$(PORT_DIR)/%.o: $(PORT_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "CC $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# 编译规则: SDK sample common 源码
+$(OBJ_DIR)/$(HI3519_SDK_DIR)/sample/common/%.o: $(HI3519_SDK_DIR)/sample/common/%.c
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -c $< -o $@

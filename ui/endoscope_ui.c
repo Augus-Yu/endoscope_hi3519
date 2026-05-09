@@ -379,6 +379,17 @@ static void create_patient_dialog(void)
     UI_SET_FONT(dd_gender);
     lv_obj_set_style_radius(dd_gender, 8, 0);
     lv_obj_set_style_pad_hor(dd_gender, 16, 0);
+    /* 强行触发 dropdown 列表创建，然后设置字体。
+       LVGL v9 中 dropdown 弹出的列表是独立 widget(LV_PART_ITEMS 无效) */
+    lv_dropdown_open(dd_gender);
+    lv_dropdown_close(dd_gender);
+    lv_obj_t * dd_list = lv_dropdown_get_list(dd_gender);
+    if(dd_list) {
+        lv_obj_set_style_text_font(dd_list, font_manager_get_font(), 0);
+        lv_obj_set_style_text_color(dd_list, UI_COLOR_TEXT, 0);
+        lv_obj_set_style_bg_color(dd_list, UI_COLOR_SURFACE, 0);
+        lv_obj_set_style_radius(dd_list, 8, 0);
+    }
     if(patient->gender[0]) {
         if((is_zh && strcmp(patient->gender, "男") == 0) || (!is_zh && strcasecmp(patient->gender, "Male") == 0)) {
             lv_dropdown_set_selected(dd_gender, 0);
@@ -458,6 +469,7 @@ static void create_patient_dialog(void)
     lv_keyboard_set_textarea(patient_kb_en, NULL);
     lv_obj_add_flag(patient_kb_en, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(patient_kb_en, patient_kb_event_cb, LV_EVENT_ALL, NULL);
+    lv_obj_set_style_text_font(patient_kb_en, &lv_font_montserrat_16, 0);
 
     patient_kb_cn = lv_keyboard_create(patient_overlay);
     lv_obj_set_size(patient_kb_cn, LV_HOR_RES, 280);
@@ -466,6 +478,7 @@ static void create_patient_dialog(void)
     lv_obj_add_flag(patient_kb_cn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(patient_kb_cn, patient_kb_event_cb, LV_EVENT_ALL, NULL);
     lv_ime_pinyin_set_keyboard(patient_ime, patient_kb_cn);
+    lv_obj_set_style_text_font(patient_kb_cn, &lv_font_montserrat_16, 0);
 
     patient_cand_panel = lv_ime_pinyin_get_cand_panel(patient_ime);
     lv_obj_set_size(patient_cand_panel, LV_HOR_RES, 48);

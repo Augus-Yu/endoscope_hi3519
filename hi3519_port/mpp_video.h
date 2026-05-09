@@ -12,7 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "/home/ydy/Hi3519AV100_SDK_V2.0.2.0/smp/a53_linux/mpp/sample/common/sample_comm.h"
+#include "sample_comm.h"
 
 #ifdef __cplusplus
 extern "C" {
