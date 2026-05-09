@@ -36,6 +36,7 @@
 static lv_obj_t * main_screen = NULL;
 static lv_obj_t * video_area = NULL;
 static lv_obj_t * record_btn = NULL;
+static lv_obj_t * record_status_label = NULL;
 static lv_obj_t * time_label = NULL;
 static lv_timer_t * record_timer = NULL;
 static lv_obj_t * patient_info_label = NULL;  /* 病人信息标签 */
@@ -241,11 +242,12 @@ static void create_left_panel(lv_obj_t * parent)
     lv_obj_align(title3, LV_ALIGN_TOP_LEFT, 0, y_pos);
     y_pos += 60;  /* 25 * 2.4 */
 
-    lv_obj_t * info3 = lv_label_create(panel);
-    lv_label_set_text(info3, _TR("MAIN_RECORDING"));
-    UI_SET_FONT(info3);
-    lv_obj_set_style_text_color(info3, MAIN_COLOR_RECORD, 0);
-    lv_obj_align(info3, LV_ALIGN_TOP_LEFT, 0, y_pos);
+    record_status_label = lv_label_create(panel);
+    lv_label_set_text(record_status_label, _TR("MAIN_RECORDING"));
+    UI_SET_FONT(record_status_label);
+    lv_obj_set_style_text_color(record_status_label, MAIN_COLOR_RECORD, 0);
+    lv_obj_align(record_status_label, LV_ALIGN_TOP_LEFT, 0, y_pos);
+    lv_obj_add_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
     
     /* 录制时间 */
     y_pos += 72;  /* 30 * 2.4 */
@@ -326,10 +328,8 @@ static void create_right_panel(lv_obj_t * parent)
         lv_obj_set_style_radius(btn, 8, 0);
         lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)btn_ids[i]);
         
-        /* 高亮录像按钮 */
         if(i == 5) {
             record_btn = btn;
-            lv_obj_set_style_bg_color(btn, MAIN_COLOR_RECORD, 0);
         }
         
         /* 图标 - 使用更大的字体 */
@@ -421,7 +421,8 @@ static void btn_event_cb(lv_event_t * e)
                 endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), "录像启动失败", _TR("DLG_BTN_OK"));
                 break;
             }
-            lv_obj_set_style_bg_color(record_btn, lv_color_hex(0x666666), 0);
+            lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_RECORD, 0);
+            lv_obj_clear_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
             if(record_timer) {
                 lv_timer_delete(record_timer);
@@ -430,7 +431,8 @@ static void btn_event_cb(lv_event_t * e)
             record_timer = lv_timer_create(record_timer_cb, 1000, NULL);
         } else {
             record_stop();
-            lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_RECORD, 0);
+            lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_BG, 0);
+            lv_obj_add_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
             if(record_timer) {
                 lv_timer_delete(record_timer);
@@ -458,6 +460,7 @@ static void record_timer_cb(lv_timer_t * timer)
     (void)timer;
     endoscope_status_t * status = endoscope_get_status();
     pthread_mutex_lock(&g_status_mutex);
+    status->recording_time++;
     uint32_t recording_time = status->recording_time;
     pthread_mutex_unlock(&g_status_mutex);
     
