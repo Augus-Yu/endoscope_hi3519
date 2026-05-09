@@ -75,15 +75,15 @@ HI_S32 mpp_system_init(HI_VOID)
                                           PIXEL_FORMAT, DATA_BITWIDTH_8,
                                           COMPRESS_MODE_SEG, DEFAULT_ALIGN);
     stVbConf.astCommPool[0].u64BlkSize = u32BlkSize;
-    stVbConf.astCommPool[0].u32BlkCnt = 10;
+    stVbConf.astCommPool[0].u32BlkCnt = 20;
 
     u32BlkSize = VI_GetRawBufferSize(stSize.u32Width, stSize.u32Height,
-                                      PIXEL_FORMAT_RGB_BAYER_16BPP,
-                                      COMPRESS_MODE_NONE, DEFAULT_ALIGN);
+                                       PIXEL_FORMAT_RGB_BAYER_16BPP,
+                                       COMPRESS_MODE_NONE, DEFAULT_ALIGN);
     stVbConf.astCommPool[1].u64BlkSize = u32BlkSize;
-    stVbConf.astCommPool[1].u32BlkCnt = 4;
+    stVbConf.astCommPool[1].u32BlkCnt = 15;
 
-    s32Ret = SAMPLE_COMM_SYS_Init(&stVbConf);
+    s32Ret = SAMPLE_COMM_SYS_InitWithVbSupplement(&stVbConf, VB_SUPPLEMENT_JPEG_MASK);
     if (HI_SUCCESS != s32Ret) {
         printf("System init failed with %d!\n", s32Ret);
         return s32Ret;

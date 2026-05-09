@@ -101,13 +101,14 @@ void endoscope_dialogs_show(const char *title, const char *msg, const char *btn_
     /* 标题 */
     lv_obj_t * title_lbl = lv_label_create(dialog_box);
     lv_label_set_text(title_lbl, title);
-    lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_18, 0);
+    UI_SET_FONT(title_lbl);
     lv_obj_set_style_text_color(title_lbl, UI_COLOR_TEXT, 0);
     lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 20);
 
     /* 消息内容 */
     lv_obj_t * msg_lbl = lv_label_create(dialog_box);
     lv_label_set_text(msg_lbl, msg);
+    UI_SET_FONT(msg_lbl);
     lv_obj_set_style_text_color(msg_lbl, UI_COLOR_TEXT_SECONDARY, 0);
     lv_label_set_long_mode(msg_lbl, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(msg_lbl, 360);
@@ -123,6 +124,8 @@ void endoscope_dialogs_show(const char *title, const char *msg, const char *btn_
 
     lv_obj_t * btn_lbl = lv_label_create(btn);
     lv_label_set_text(btn_lbl, btn_text ? btn_text : "OK");
+    UI_SET_FONT(btn_lbl);
+    lv_obj_set_style_text_color(btn_lbl, lv_color_white(), 0);
     lv_obj_align(btn_lbl, LV_ALIGN_CENTER, 0, 0);
 }
 

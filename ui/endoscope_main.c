@@ -14,6 +14,8 @@
 #include "endoscope_dialogs.h"
 #include "ui_helpers.h"
 #include "display_config.h"
+#include "hi3519_port/mpp_record.h"
+#include <sys/stat.h>
 
 /*********************
  *      DEFINES
@@ -53,6 +55,7 @@ static void create_right_panel(lv_obj_t * parent);
 static void btn_event_cb(lv_event_t * e);
 static void record_timer_cb(lv_timer_t * timer);
 static void date_time_timer_cb(lv_timer_t * timer);
+static void choose_save_base(void);
 
 /**********************
  *   GLOBAL FUNCTIONS
@@ -363,6 +366,22 @@ static void create_right_panel(lv_obj_t * parent)
     lv_slider_set_value(led_slider, 50, LV_ANIM_OFF);
 }
 
+static void choose_save_base(void)
+{
+    const char *usb_paths[] = {
+        "/mnt/sd", "/mnt/usb", "/mnt/sda1",
+        "/mnt/sda", "/media/usb", "/media/sda1"
+    };
+    for (size_t i = 0; i < sizeof(usb_paths) / sizeof(usb_paths[0]); i++) {
+        struct stat st;
+        if (stat(usb_paths[i], &st) == 0 && S_ISDIR(st.st_mode)) {
+            record_set_save_base(usb_paths[i]);
+            return;
+        }
+    }
+    record_set_save_base("./endoscope");
+}
+
 static void btn_event_cb(lv_event_t * e)
 {
     int btn_id = (int)(intptr_t)lv_event_get_user_data(e);
@@ -382,21 +401,26 @@ static void btn_event_cb(lv_event_t * e)
         endoscope_show_dialog(_TR("DLG_TITLE_FREEZE"), _TR("DLG_MSG_FROZEN"), _TR("DLG_BTN_OK"));
         break;
     case 5: /* 拍照 */
-        if(!status->usb_connected) {
-            endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), _TR("DLG_MSG_INSERT_USB"), _TR("DLG_BTN_OK"));
-        } else {
+        choose_save_base();
+        if(snapshot_save(NULL) == 0) {
             endoscope_show_dialog(_TR("DLG_TITLE_CAPTURE"), _TR("DLG_MSG_PHOTO_SAVED"), _TR("DLG_BTN_OK"));
+        } else {
+            endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), "拍照失败", _TR("DLG_BTN_OK"));
         }
         break;
     case 6: /* 录像 */
-        if(!status->usb_connected) {
-            endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), _TR("DLG_MSG_INSERT_USB"), _TR("DLG_BTN_OK"));
-            return;
-        }
         pthread_mutex_lock(&g_status_mutex);
         status->is_recording = !status->is_recording;
         pthread_mutex_unlock(&g_status_mutex);
         if(status->is_recording) {
+            choose_save_base();
+            if(record_start(NULL) != 0) {
+                pthread_mutex_lock(&g_status_mutex);
+                status->is_recording = 0;
+                pthread_mutex_unlock(&g_status_mutex);
+                endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), "录像启动失败", _TR("DLG_BTN_OK"));
+                break;
+            }
             lv_obj_set_style_bg_color(record_btn, lv_color_hex(0x666666), 0);
             lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
             if(record_timer) {
@@ -405,6 +429,7 @@ static void btn_event_cb(lv_event_t * e)
             }
             record_timer = lv_timer_create(record_timer_cb, 1000, NULL);
         } else {
+            record_stop();
             lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_RECORD, 0);
             lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
             if(record_timer) {

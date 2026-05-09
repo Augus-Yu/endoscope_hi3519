@@ -13,12 +13,16 @@
 
 // Recording APIs
 int record_init(void);
-int record_start(const char* filename); // filename is ignored; generated internally
+int record_start(const char* filename);
 int record_stop(void);
 int record_deinit(void);
 
 // Snapshot API
 int snapshot_save(const char* filename);
+
+// Set save base directory (e.g. "./endoscope" or "/mnt/usb")
+// Default is "./endoscope"
+void record_set_save_base(const char *base);
 
 // Helper to generate filenames with a given extension (ext should include dot, e.g. ".h264" or ".jpg")
 void generate_filename(char* buf, size_t size, const char* ext);

@@ -14,6 +14,7 @@
 #include "../lvgl/lvgl.h"
 #include "hi3519_port/lv_port_disp.h"
 #include "hi3519_port/lv_port_indev.h"
+#include "hi3519_port/mpp_record.h"
 
 #define VIDEO_X      760
 #define VIDEO_Y      340
@@ -104,6 +105,8 @@ int main(int argc, char **argv)
     }
     printf("      MPP video system initialized\n\n");
 
+    record_init();
+
     printf("[3/3] Starting keyboard monitor and video...\n");
     pthread_t kbd_thread;
     pthread_create(&kbd_thread, NULL, keyboard_thread_fn, NULL);
@@ -154,6 +157,9 @@ int main(int argc, char **argv)
         mpp_video_deinit();
         g_video_started = 0;
     }
+
+    printf("[*] Stopping recorder...\n");
+    record_deinit();
 
     printf("[*] Deinitializing LVGL...\n");
     lv_port_indev_deinit();
