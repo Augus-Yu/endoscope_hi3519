@@ -21,6 +21,12 @@ volatile int g_video_trans_enable = 1;
 volatile int g_splash_showing = 1;
 volatile int g_playback_mode = 0;
 
+/* 播放器视频区域 (用于在播放时只让视频区域透明，控制栏正常显示) */
+volatile int g_player_video_x = 0;
+volatile int g_player_video_y = 0;
+volatile int g_player_video_w = 0;
+volatile int g_player_video_h = 0;
+
 extern lv_display_t * lv_display_create(int32_t hor_res, int32_t ver_res);
 extern void lv_display_set_flush_cb(lv_display_t * disp, void (*flush_cb)(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map));
 extern void * lv_display_get_user_data(lv_display_t * disp);
@@ -69,11 +75,21 @@ static void lv_port_disp_flush_cb(lv_display_t * disp, const lv_area_t * area, u
             for (int32_t col = 0; col < w; col++) {
                 int32_t abs_x = x + col;
                 int32_t abs_y = y + row;
-                if (g_playback_mode) {
-                    dst[col] = 0x0000FF00;
+                int trans = 0;
+                if (g_playback_mode && g_player_video_w > 0 && g_player_video_h > 0) {
+                    /* 播放器模式: 只在视频区域做透明 */
+                    if (abs_x >= g_player_video_x &&
+                        abs_x < g_player_video_x + g_player_video_w &&
+                        abs_y >= g_player_video_y &&
+                        abs_y < g_player_video_y + g_player_video_h) {
+                        trans = 1;
+                    }
                 } else if (g_video_trans_enable && !g_dialog_showing && !g_splash_showing &&
                     abs_x >= 598 && abs_x < 1398 &&
                     abs_y >= 200 && abs_y < 1000) {
+                    trans = 1;
+                }
+                if (trans) {
                     dst[col] = 0x0000FF00;
                 } else {
                     dst[col] = src[row * w + col];

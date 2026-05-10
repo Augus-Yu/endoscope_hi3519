@@ -1,5 +1,6 @@
 #include "mpp_playback.h"
 #include "mpp_video.h"
+#include "lv_port_disp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -336,6 +337,12 @@ int playback_start(const char *filepath)
     g_pb.paused     = 0;
     g_playback_mode = 1;
 
+    /* 设置播放器视频透明区域: 全屏宽度, 高度排除底部80px控制栏 */
+    g_player_video_x = 0;
+    g_player_video_y = 0;
+    g_player_video_w = 1920;
+    g_player_video_h = 1000;
+
     pthread_create(&g_pb.thread, NULL, playback_thread, NULL);
     printf("[PB] Started (%d frames)\n", g_pb.total_frames);
     return 0;
@@ -364,6 +371,10 @@ int playback_stop(void)
     if (g_pb.fp) { fclose(g_pb.fp); g_pb.fp = NULL; }
     free(g_pb.index); g_pb.index = NULL;
     free(g_pb.file_buf); g_pb.file_buf = NULL;
+
+    /* 恢复默认视频透明区域 (清空播放器区域, 下次用回预览的固定区域) */
+    g_player_video_w = 0;
+    g_player_video_h = 0;
 
     SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn,
                               vc->vo_dev, vc->vo_chn);
