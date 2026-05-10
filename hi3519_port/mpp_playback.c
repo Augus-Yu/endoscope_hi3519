@@ -337,11 +337,12 @@ int playback_start(const char *filepath)
     g_pb.paused     = 0;
     g_playback_mode = 1;
 
-    /* 设置播放器视频透明区域: 全屏宽度, 高度排除底部80px控制栏 */
-    g_player_video_x = 0;
-    g_player_video_y = 0;
-    g_player_video_w = 1920;
-    g_player_video_h = 1000;
+    /* 设置播放器视频居中显示 (800x800), 控制栏在底部 80px */
+    video_set_position(560, 140, 800, 800);
+    g_player_video_x = 560;
+    g_player_video_y = 140;
+    g_player_video_w = 800;
+    g_player_video_h = 800;
 
     pthread_create(&g_pb.thread, NULL, playback_thread, NULL);
     printf("[PB] Started (%d frames)\n", g_pb.total_frames);
@@ -372,7 +373,8 @@ int playback_stop(void)
     free(g_pb.index); g_pb.index = NULL;
     free(g_pb.file_buf); g_pb.file_buf = NULL;
 
-    /* 恢复默认视频透明区域 (清空播放器区域, 下次用回预览的固定区域) */
+    /* 恢复预览视频位置 (598, 200, 800, 800) 并清除播放器透明区域 */
+    video_set_position(598, 200, 800, 800);
     g_player_video_w = 0;
     g_player_video_h = 0;
 

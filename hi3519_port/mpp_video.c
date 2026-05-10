@@ -274,6 +274,14 @@ HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
     s_vo_display_rect.s32Y = y;
     s_vo_display_rect.u32Width = width;
     s_vo_display_rect.u32Height = height;
+
+    /* 运行时更新 VO 显示位置 */
+    video_context_t *ctx = video_get_context();
+    if (ctx && ctx->state >= VIDEO_STATE_INIT) {
+        POINT_S stPos = {x, y};
+        HI_MPI_VO_SetChnDisplayPosition(ctx->vo_dev, ctx->vo_chn, &stPos);
+    }
+
     return HI_SUCCESS;
 }
 
