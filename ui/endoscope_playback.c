@@ -10,6 +10,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+extern volatile int g_video_trans_enable;
+
 #define RECORD_DIR "./endoscope/record"
 
 static lv_obj_t * playback_screen = NULL;
@@ -20,8 +22,6 @@ static void back_btn_event(lv_event_t * e);
 static void refresh_btn_event(lv_event_t * e);
 static void file_click_event(lv_event_t * e);
 static void refresh_list(void);
-
-static char g_selected_path[512];
 
 void endoscope_playback_init(void)
 {
@@ -64,12 +64,14 @@ void endoscope_playback_init(void)
     lv_obj_set_style_bg_color(file_list, UI_COLOR_SURFACE, 0);
 
     status_label = lv_label_create(playback_screen);
-    lv_obj_set_style_text_color(status_label, UI_COLOR_TEXT, 0);
+    lv_label_set_text(status_label, "");
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0xFF4444), 0);
     lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
 
 void endoscope_playback_show(void)
 {
+    g_video_trans_enable = 0;
     refresh_list();
     lv_scr_load(playback_screen);
 }
@@ -140,7 +142,6 @@ static void file_click_event(lv_event_t * e)
         playback_stop();
 
     if (playback_start(path) == 0) {
-        lv_label_set_text(status_label, "正在播放...");
         screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
     } else {
         lv_label_set_text(status_label, "播放失败");

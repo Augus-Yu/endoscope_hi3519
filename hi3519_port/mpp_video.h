@@ -150,6 +150,8 @@ video_state_t video_get_state(video_context_t *ctx);
  */
 HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height);
 
+
+
 /**
  * @brief 获取全局视频上下文
  * @return 视频上下文指针

@@ -5,6 +5,7 @@
 
 int  playback_start(const char *filepath);
 int  playback_stop(void);
+void playback_restore_preview(void);
 int  playback_is_running(void);
 
 /* 暂停/继续 (toggle) */

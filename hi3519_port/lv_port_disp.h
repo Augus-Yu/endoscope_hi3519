@@ -27,10 +27,4 @@ void lv_port_disp_deinit(void);
  */
 int lv_port_disp_snapshot(void *buf, size_t buf_size, uint32_t *width, uint32_t *height, uint32_t *stride, int *bpp);
 
-/* 播放器视频透明区域 (由播放器模块设置，flush 回调使用) */
-extern volatile int g_player_video_x;
-extern volatile int g_player_video_y;
-extern volatile int g_player_video_w;
-extern volatile int g_player_video_h;
-
 #endif // LV_PORT_DISP_H

@@ -1,6 +1,5 @@
 #include "mpp_playback.h"
 #include "mpp_video.h"
-#include "lv_port_disp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +21,6 @@ typedef struct {
 
 /* ── Playback state ── */
 static struct {
-    /* Thread control */
     pthread_t   thread;
     volatile int running;
     volatile int paused;
@@ -34,12 +32,14 @@ static struct {
     FILE         *fp;
     uint8_t      *file_buf;
     long          file_size;
-    frame_index_t *index;       /* array of frame positions */
-    int           total_frames; /* total frames in file */
-    volatile int  current_frame; /* frame currently being sent */
+    frame_index_t *index;
+    int           total_frames;
+    volatile int  current_frame;
 
-    /* Seek request (set by external caller, read by thread) */
-    volatile int seek_target;   /* -1 = no seek, >=0 = frame to seek to */
+    /* Flags */
+    volatile int seek_target;      /* -1 = no seek, >=0 = frame to seek to */
+    volatile int eof_reached;      /* 1 = playback reached end */
+
 } g_pb = {0};
 
 static void *playback_thread(void *arg);
@@ -146,7 +146,7 @@ static int build_frame_index(void)
     return 0;
 }
 
-/* ── Drain all available decoded frames to VO ── */
+/* ── Drain all available decoded frames to VO (不阻塞) ── */
 static int drain_all_frames(void)
 {
     int cnt = 0;
@@ -162,30 +162,30 @@ static int drain_all_frames(void)
     return cnt;
 }
 
-/* ── Re-init VDEC (called after seek to clear decoder state) ── */
+/* ── 等待至少一帧解码完成并显示 (最多等待 200ms) ── */
+static int drain_one_frame_wait(void)
+{
+    for (int i = 0; i < 40; i++) {
+        VIDEO_FRAME_INFO_S f;
+        HI_S32 ret = HI_MPI_VDEC_GetFrame(g_pb.vdec_chn, &f, 5);
+        if (ret == HI_SUCCESS) {
+            video_context_t *vc = video_get_context();
+            HI_MPI_VO_SendFrame(vc->vo_dev, vc->vo_chn, &f, 0);
+            HI_MPI_VDEC_ReleaseFrame(g_pb.vdec_chn, &f);
+            return 1;
+        }
+        usleep(5000);
+    }
+    return 0;
+}
+
+/* ──  seek 时重建 VDEC 通道 (不重建 VB 池) ── */
 static int reinit_vdec(void)
 {
-    if (g_pb.started) {
-        HI_MPI_VDEC_StopRecvStream(g_pb.vdec_chn);
-        HI_MPI_VDEC_DestroyChn(g_pb.vdec_chn);
-        SAMPLE_COMM_VDEC_ExitVBPool();
-        g_pb.started = HI_FALSE;
-    }
+    if (!g_pb.started) return -1;
 
-    /* Re-init VB pool */
-    SAMPLE_VDEC_ATTR stAttr;
-    memset(&stAttr, 0, sizeof(stAttr));
-    stAttr.enType                       = PT_H264;
-    stAttr.u32Width                     = 400;
-    stAttr.u32Height                    = 400;
-    stAttr.enMode                       = VIDEO_MODE_FRAME;
-    stAttr.stSapmleVdecVideo.enDecMode  = VIDEO_DEC_MODE_IP;
-    stAttr.stSapmleVdecVideo.enBitWidth = DATA_BITWIDTH_8;
-    stAttr.stSapmleVdecVideo.u32RefFrameNum = 2;
-    stAttr.u32DisplayFrameNum           = 2;
-    stAttr.u32FrameBufCnt               = 5;
-
-    if (SAMPLE_COMM_VDEC_InitVBPool(1, &stAttr) != HI_SUCCESS) return -1;
+    HI_MPI_VDEC_StopRecvStream(g_pb.vdec_chn);
+    HI_MPI_VDEC_DestroyChn(g_pb.vdec_chn);
 
     VDEC_CHN_ATTR_S ca;
     memset(&ca, 0, sizeof(ca));
@@ -203,7 +203,6 @@ static int reinit_vdec(void)
     ca.stVdecVideoAttr.bTemporalMvpEnable = 0;
 
     if (HI_MPI_VDEC_CreateChn(g_pb.vdec_chn, &ca) != HI_SUCCESS) return -1;
-    g_pb.started = HI_TRUE;
 
     VDEC_CHN_PARAM_S chnParam;
     memset(&chnParam, 0, sizeof(chnParam));
@@ -337,12 +336,7 @@ int playback_start(const char *filepath)
     g_pb.paused     = 0;
     g_playback_mode = 1;
 
-    /* 设置播放器视频居中显示 (800x800), 控制栏在底部 80px */
-    video_set_position(560, 140, 800, 800);
-    g_player_video_x = 560;
-    g_player_video_y = 140;
-    g_player_video_w = 800;
-    g_player_video_h = 800;
+
 
     pthread_create(&g_pb.thread, NULL, playback_thread, NULL);
     printf("[PB] Started (%d frames)\n", g_pb.total_frames);
@@ -352,15 +346,12 @@ int playback_start(const char *filepath)
 int playback_stop(void)
 {
     g_playback_mode = 0;
-    g_video_trans_enable = 1;
 
     if (g_pb.thread) {
         g_pb.running = 0;
         pthread_join(g_pb.thread, NULL);
         g_pb.thread = 0;
     }
-
-    video_context_t *vc = video_get_context();
 
     if (g_pb.started) {
         HI_MPI_VDEC_StopRecvStream(g_pb.vdec_chn);
@@ -373,17 +364,20 @@ int playback_stop(void)
     free(g_pb.index); g_pb.index = NULL;
     free(g_pb.file_buf); g_pb.file_buf = NULL;
 
-    /* 恢复预览视频位置 (598, 200, 800, 800) 并清除播放器透明区域 */
-    video_set_position(598, 200, 800, 800);
-    g_player_video_w = 0;
-    g_player_video_h = 0;
-
-    SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn,
-                              vc->vo_dev, vc->vo_chn);
-    lv_obj_invalidate(lv_scr_act());
-
-    printf("[PB] Stopped\n");
+    printf("[PB] Stopped (last frame stays)\n");
     return 0;
+}
+
+/* 恢复预览流 (由播放器返回键调用) */
+void playback_restore_preview(void)
+{
+    video_context_t *vc = video_get_context();
+    if (vc) {
+        SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn,
+                                  vc->vo_dev, vc->vo_chn);
+    }
+    g_video_trans_enable = 0;
+    printf("[PB] Preview restored\n");
 }
 
 int playback_is_running(void) { return g_pb.running; }
@@ -439,6 +433,52 @@ int playback_step_backward(int frames)
 
 /* ── send-stream thread ── */
 
+/* 发送当前帧到 VDEC 并 drain 到 VO, 返回 1=成功 */
+static int send_frame_at(uint8_t *buf, int buf_size, HI_U64 pts)
+{
+    if (g_pb.current_frame >= g_pb.total_frames) return 0;
+    long pos = g_pb.index[g_pb.current_frame].file_offset;
+    long next_pos = (g_pb.current_frame + 1 < g_pb.total_frames)
+                    ? g_pb.index[g_pb.current_frame + 1].file_offset
+                    : g_pb.file_size;
+    int frame_len = (int)(next_pos - pos);
+    if (frame_len <= 0 || frame_len > buf_size) return 0;
+
+    fseek(g_pb.fp, pos, SEEK_SET);
+    if (fread(buf, 1, frame_len, g_pb.fp) != (size_t)frame_len) return 0;
+
+    VDEC_STREAM_S st;
+    memset(&st, 0, sizeof(st));
+    st.pu8Addr      = buf;
+    st.u32Len       = frame_len;
+    st.u64PTS       = pts;
+    st.bEndOfFrame  = HI_TRUE;
+    st.bEndOfStream = HI_FALSE;
+    st.bDisplay     = HI_TRUE;
+
+    int retry = 0;
+    HI_S32 ret;
+    do {
+        ret = HI_MPI_VDEC_SendStream(g_pb.vdec_chn, &st, 50);
+        if (ret == HI_ERR_VDEC_BUF_FULL) { drain_all_frames(); usleep(5000); retry++; }
+        else if (ret != HI_SUCCESS) { usleep(5000); retry++; }
+    } while (ret != HI_SUCCESS && retry < 200 && g_pb.running);
+
+    if (ret == HI_SUCCESS) drain_all_frames();
+    return ret == HI_SUCCESS;
+}
+
+/* seek 后专用: 发一帧并等待它解码显示 */
+static int seek_send_frame(uint8_t *buf, int buf_size, HI_U64 pts)
+{
+    if (send_frame_at(buf, buf_size, pts)) {
+        drain_one_frame_wait();
+        drain_all_frames();
+        return 1;
+    }
+    return 0;
+}
+
 static void *playback_thread(void *arg)
 {
     (void)arg;
@@ -451,16 +491,17 @@ static void *playback_thread(void *arg)
     int frame_shown = 0;
 
     while (g_pb.running) {
-        /* Handle pause */
-        if (g_pb.paused) {
-            usleep(50000);
-            continue;
-        }
-
-        /* Handle seek request */
+        /* Handle seek request first (even when paused) */
         if (g_pb.seek_target >= 0) {
             do_seek(g_pb.seek_target);
             g_pb.seek_target = -1;
+            seek_send_frame(buf, buf_size, g_pb.current_frame * 33333ULL);
+            continue;
+        }
+
+        /* Handle pause */
+        if (g_pb.paused) {
+            usleep(50000);
             continue;
         }
 
@@ -470,45 +511,8 @@ static void *playback_thread(void *arg)
             break;
         }
 
-        /* Read frame from file */
-        long pos = g_pb.index[g_pb.current_frame].file_offset;
-        long next_pos = (g_pb.current_frame + 1 < g_pb.total_frames)
-                        ? g_pb.index[g_pb.current_frame + 1].file_offset
-                        : g_pb.file_size;
-        int frame_len = (int)(next_pos - pos);
-
-        if (frame_len <= 0 || frame_len > buf_size) {
+        if (send_frame_at(buf, buf_size, g_pb.current_frame * 33333ULL)) {
             g_pb.current_frame++;
-            continue;
-        }
-
-        fseek(g_pb.fp, pos, SEEK_SET);
-        if (fread(buf, 1, frame_len, g_pb.fp) != (size_t)frame_len) break;
-
-        VDEC_STREAM_S st;
-        memset(&st, 0, sizeof(st));
-        st.pu8Addr      = buf;
-        st.u32Len       = frame_len;
-        st.u64PTS       = g_pb.current_frame * 33333ULL;
-        st.bEndOfFrame  = HI_TRUE;
-        st.bEndOfStream = HI_FALSE;
-        st.bDisplay     = HI_TRUE;
-
-        HI_S32 ret;
-        int retry = 0;
-        do {
-            ret = HI_MPI_VDEC_SendStream(g_pb.vdec_chn, &st, 50);
-            if (ret == HI_ERR_VDEC_BUF_FULL) {
-                drain_all_frames();
-                usleep(5000); retry++;
-            } else if (ret != HI_SUCCESS) {
-                usleep(5000); retry++;
-            }
-        } while (ret != HI_SUCCESS && retry < 200 && g_pb.running);
-
-        if (ret == HI_SUCCESS) {
-            g_pb.current_frame++;
-            drain_all_frames();
 
             if ((g_pb.current_frame % 30) == 0)
                 printf("[PB-T] frame %d/%d\n",
@@ -516,19 +520,20 @@ static void *playback_thread(void *arg)
 
             usleep(33000);
         } else {
-            printf("[PB-T] Send err 0x%x at frame %d\n",
-                   ret, g_pb.current_frame);
+            printf("[PB-T] Send err at frame %d\n",
+                   g_pb.current_frame);
             break;
         }
     }
 
-    /* Final drain */
+    /* Final drain - send remaining decoded frames to VO */
     drain_all_frames();
 
     free(buf);
 
-    printf("[PB-T] playback complete (%d/%d frames)\n",
+    printf("[PB-T] EOF reached (%d/%d frames)\n",
            g_pb.current_frame, g_pb.total_frames);
-    playback_stop();
+    g_pb.eof_reached = 1;
+    /* 线程退出, 不调用 playback_stop(). 用户按返回或切文件时才清理. */
     return NULL;
 }
