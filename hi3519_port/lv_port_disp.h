@@ -27,4 +27,9 @@ void lv_port_disp_deinit(void);
  */
 int lv_port_disp_snapshot(void *buf, size_t buf_size, uint32_t *width, uint32_t *height, uint32_t *stride, int *bpp);
 
+extern volatile int g_varea_x;
+extern volatile int g_varea_y;
+extern volatile int g_varea_w;
+extern volatile int g_varea_h;
+
 #endif // LV_PORT_DISP_H

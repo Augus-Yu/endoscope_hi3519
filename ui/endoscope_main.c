@@ -16,6 +16,7 @@
 #include "display_config.h"
 #include "hi3519_port/mpp_record.h"
 #include "hi3519_port/mpp_video.h"
+#include "hi3519_port/lv_port_disp.h"
 #include "sample_comm.h"
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -47,6 +48,14 @@ static lv_obj_t * date_time_label = NULL;
 static lv_timer_t * date_timer = NULL;
 static lv_obj_t * led_slider = NULL;
 static int g_frozen = 0;
+static int g_zoom_level = 0;
+
+/* 缩放级别: {宽, 高, 居中X, 居中Y} */
+static const int zoom_config[3][4] = {
+    {400, 400, 760, 340},   /* 1x */
+    {600, 600, 660, 240},   /* 1.5x */
+    {800, 800, 560, 140},   /* 2x */
+};
 
 static pthread_mutex_t g_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -512,9 +521,42 @@ static void btn_event_cb(lv_event_t * e)
             pthread_mutex_unlock(&g_status_mutex);
         }
         break;
-    case 7: /* 电子放大 */
-        endoscope_show_dialog(_TR("DLG_TITLE_ZOOM"), _TR("DLG_MSG_ZOOM_FUNC"), _TR("DLG_BTN_OK"));
+    case 7: { /* 电子放大 - 循环切换 1x → 1.5x → 2x */
+        g_zoom_level = (g_zoom_level + 1) % 3;
+        int w = zoom_config[g_zoom_level][0];
+        int h = zoom_config[g_zoom_level][1];
+        int x = zoom_config[g_zoom_level][2];
+        int y = zoom_config[g_zoom_level][3];
+
+        /* 更新 VO 显示区域 */
+        video_context_t *vc = video_get_context();
+        if (vc) {
+            VO_CHN_ATTR_S attr;
+            if (HI_MPI_VO_GetChnAttr(vc->vo_dev, vc->vo_chn, &attr) == HI_SUCCESS) {
+                attr.stRect.s32X = x;
+                attr.stRect.s32Y = y;
+                attr.stRect.u32Width = w;
+                attr.stRect.u32Height = h;
+                HI_MPI_VO_SetChnAttr(vc->vo_dev, vc->vo_chn, &attr);
+            }
+        }
+
+        /* 更新透明区域 */
+        g_varea_x = x;
+        g_varea_y = y;
+        g_varea_w = w;
+        g_varea_h = h;
+
+        /* 更新按钮文字 */
+        lv_obj_t *btn = lv_event_get_target_obj(e);
+        lv_obj_t *lbl = lv_obj_get_child(btn, 1);
+        if (lbl) {
+            char txt[32];
+            snprintf(txt, sizeof(txt), "%dx%d", w, h);
+            lv_label_set_text(lbl, txt);
+        }
         break;
+    }
     case 8: /* 回放 */
         screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYBACK);
         break;

@@ -21,6 +21,12 @@ volatile int g_video_trans_enable = 1;
 volatile int g_splash_showing = 1;
 volatile int g_playback_mode = 0;
 
+/* 视频透明区域 (可由 zoom 模块动态修改) */
+volatile int g_varea_x = 760;
+volatile int g_varea_y = 340;
+volatile int g_varea_w = 400;
+volatile int g_varea_h = 400;
+
 extern lv_display_t * lv_display_create(int32_t hor_res, int32_t ver_res);
 extern void lv_display_set_flush_cb(lv_display_t * disp, void (*flush_cb)(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map));
 extern void * lv_display_get_user_data(lv_display_t * disp);
@@ -70,8 +76,8 @@ static void lv_port_disp_flush_cb(lv_display_t * disp, const lv_area_t * area, u
                 int32_t abs_x = x + col;
                 int32_t abs_y = y + row;
                 if (g_video_trans_enable && !g_dialog_showing && !g_splash_showing &&
-                    abs_x >= 760 && abs_x < 1160 &&
-                    abs_y >= 340 && abs_y < 740) {
+                    abs_x >= g_varea_x && abs_x < g_varea_x + g_varea_w &&
+                    abs_y >= g_varea_y && abs_y < g_varea_y + g_varea_h) {
                     dst[col] = 0x0000FF00;
                 } else {
                     dst[col] = src[row * w + col];
