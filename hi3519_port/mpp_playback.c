@@ -40,6 +40,7 @@ static struct {
     volatile int seek_target;      /* -1 = no seek, >=0 = frame to seek to */
     volatile int eof_reached;      /* 1 = playback reached end */
 
+
 } g_pb = {0};
 
 static void *playback_thread(void *arg);
@@ -332,11 +333,13 @@ int playback_start(const char *filepath)
         build_frame_index();
     }
 
+    /* 禁能再重新使能 VO 通道, 清掉残留的预览帧 */
+    HI_MPI_VO_DisableChn(vc->vo_dev, vc->vo_chn);
+    HI_MPI_VO_EnableChn(vc->vo_dev, vc->vo_chn);
+
     g_pb.running    = 1;
     g_pb.paused     = 0;
     g_playback_mode = 1;
-
-
 
     pthread_create(&g_pb.thread, NULL, playback_thread, NULL);
     printf("[PB] Started (%d frames)\n", g_pb.total_frames);

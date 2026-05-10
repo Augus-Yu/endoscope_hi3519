@@ -9,6 +9,7 @@
 #include <string.h>
 
 extern volatile int g_video_trans_enable;
+volatile int g_player_pending_refresh = 0;
 
 static lv_obj_t * player_screen = NULL;
 static lv_obj_t * play_btn = NULL;
@@ -68,6 +69,10 @@ static void slider_event_cb(lv_event_t * e)
 static void ui_timer_cb(lv_timer_t * tmr)
 {
     (void)tmr;
+    if (g_player_pending_refresh) {
+        g_player_pending_refresh = 0;
+        lv_obj_invalidate(lv_scr_act());
+    }
     if (!playback_is_running()) {
         lv_label_set_text(play_label, LV_SYMBOL_PLAY);
         lv_slider_set_value(progress_slider, 1000, LV_ANIM_OFF);
@@ -200,8 +205,8 @@ void endoscope_player_init(void)
 
 void endoscope_player_show(void)
 {
+    g_video_trans_enable = 1;
     if (player_screen) {
-        g_video_trans_enable = 1;
         lv_scr_load(player_screen);
     }
     if (ui_timer) lv_timer_resume(ui_timer);
