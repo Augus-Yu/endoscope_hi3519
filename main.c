@@ -10,6 +10,7 @@
 #include <errno.h>
 
 #include "hi3519_port/mpp_video.h"
+#include "sample_comm.h"
 #include "ui/endoscope_ui.h"
 #include "../lvgl/lvgl.h"
 #include "hi3519_port/lv_port_disp.h"
@@ -167,6 +168,9 @@ int main(int argc, char **argv)
         mpp_video_deinit();
         g_video_started = 0;
     }
+
+    /* 关闭 HDMI, 避免下次启动报 already opened */
+    SAMPLE_COMM_VO_HdmiStop();
 
     printf("[*] Stopping recorder...\n");
     record_deinit();
