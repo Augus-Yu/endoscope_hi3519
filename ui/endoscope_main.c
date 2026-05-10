@@ -15,7 +15,10 @@
 #include "ui_helpers.h"
 #include "display_config.h"
 #include "hi3519_port/mpp_record.h"
+#include "hi3519_port/mpp_video.h"
+#include "sample_comm.h"
 #include <sys/stat.h>
+#include <sys/types.h>
 
 /*********************
  *      DEFINES
@@ -39,10 +42,11 @@ static lv_obj_t * record_btn = NULL;
 static lv_obj_t * record_status_label = NULL;
 static lv_obj_t * time_label = NULL;
 static lv_timer_t * record_timer = NULL;
-static lv_obj_t * patient_info_label = NULL;  /* 病人信息标签 */
-static lv_obj_t * date_time_label = NULL;     /* 日期时间标签 */
-static lv_timer_t * date_timer = NULL;        /* 日期时间更新定时器 */
+static lv_obj_t * patient_info_label = NULL;
+static lv_obj_t * date_time_label = NULL;
+static lv_timer_t * date_timer = NULL;
 static lv_obj_t * led_slider = NULL;
+static int g_frozen = 0;
 
 static pthread_mutex_t g_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -397,17 +401,82 @@ static void btn_event_cb(lv_event_t * e)
     case 3: /* 白平衡 */
         endoscope_show_dialog(_TR("DLG_TITLE_BALANCE"), _TR("DLG_MSG_CALIBRATING"), _TR("DLG_BTN_OK"));
         break;
-    case 4: /* 冻结 */
-        endoscope_show_dialog(_TR("DLG_TITLE_FREEZE"), _TR("DLG_MSG_FROZEN"), _TR("DLG_BTN_OK"));
-        break;
-    case 5: /* 拍照 */
-        choose_save_base();
-        if(snapshot_save(NULL) == 0) {
-            endoscope_show_dialog(_TR("DLG_TITLE_CAPTURE"), _TR("DLG_MSG_PHOTO_SAVED"), _TR("DLG_BTN_OK"));
-        } else {
-            endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), "拍照失败", _TR("DLG_BTN_OK"));
+    case 4: /* 冻结/解冻 (停 VI + 停 VO 显示) */
+        {
+            video_context_t *vc = video_get_context();
+            lv_obj_t *btn = lv_event_get_target_obj(e);
+            lv_obj_t *icon = lv_obj_get_child(btn, 0);
+            if (!g_frozen) {
+                HI_MPI_VI_DisableChn(vc->vi_pipe, vc->vi_chn);
+                HI_MPI_VO_PauseChn(vc->vo_dev, vc->vo_chn);
+                g_frozen = 1;
+                lv_obj_set_style_bg_color(btn, UI_COLOR_ACCENT, 0);
+                if (icon) lv_label_set_text(icon, LV_SYMBOL_PLAY);
+            } else {
+                HI_MPI_VI_EnableChn(vc->vi_pipe, vc->vi_chn);
+                HI_MPI_VO_ResumeChn(vc->vo_dev, vc->vo_chn);
+                g_frozen = 0;
+                lv_obj_set_style_bg_color(btn, MAIN_COLOR_BG, 0);
+                if (icon) lv_label_set_text(icon, LV_SYMBOL_PAUSE);
+            }
         }
         break;
+    case 5: { /* 拍照 */
+        int ok = 0;
+        if (g_frozen) {
+            video_context_t *vc = video_get_context();
+            VENC_CHN snap_chn = 1;
+            VIDEO_FRAME_INFO_S vo_frame;
+            memset(&vo_frame, 0, sizeof(vo_frame));
+            if (HI_MPI_VO_GetChnFrame(vc->vo_dev, vc->vo_chn, &vo_frame, 500) == HI_SUCCESS) {
+                SIZE_S stSize = {400, 400};
+                if (SAMPLE_COMM_VENC_SnapStart(snap_chn, &stSize, HI_FALSE) == HI_SUCCESS) {
+                    VENC_RECV_PIC_PARAM_S recv = { .s32RecvPicNum = 1 };
+                    HI_MPI_VENC_StartRecvFrame(snap_chn, &recv);
+                    HI_MPI_VENC_SendFrame(snap_chn, &vo_frame, 0);
+                    VENC_CHN_STATUS_S stStat;
+                    for (int w = 0; w < 50; w++) {
+                        HI_MPI_VENC_QueryStatus(snap_chn, &stStat);
+                        if (stStat.u32CurPacks > 0) break;
+                        usleep(50000);
+                    }
+                    if (stStat.u32CurPacks > 0) {
+                        char fname[128];
+                        generate_filename(fname, sizeof(fname), ".jpg");
+                        char fullpath[512];
+                        snprintf(fullpath, sizeof(fullpath), "./endoscope/snapshot/%s", fname);
+                        mkdir("./endoscope/snapshot", 0777);
+                        FILE *fp = fopen(fullpath, "wb");
+                        if (fp) {
+                            VENC_STREAM_S stStream;
+                            stStream.u32PackCount = stStat.u32CurPacks;
+                            stStream.pstPack = malloc(sizeof(VENC_PACK_S) * stStat.u32CurPacks);
+                            if (HI_MPI_VENC_GetStream(snap_chn, &stStream, HI_TRUE) == HI_SUCCESS) {
+                                for (HI_U32 i = 0; i < stStream.u32PackCount; i++)
+                                    fwrite(stStream.pstPack[i].pu8Addr + stStream.pstPack[i].u32Offset,
+                                           stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset, 1, fp);
+                                fclose(fp);
+                                HI_MPI_VENC_ReleaseStream(snap_chn, &stStream);
+                                ok = 1;
+                            }
+                            free(stStream.pstPack);
+                        }
+                    }
+                    HI_MPI_VENC_StopRecvFrame(snap_chn);
+                    SAMPLE_COMM_VENC_SnapStop(snap_chn);
+                }
+                HI_MPI_VO_ReleaseChnFrame(vc->vo_dev, vc->vo_chn, &vo_frame);
+            }
+        } else {
+            choose_save_base();
+            ok = (snapshot_save(NULL) == 0);
+        }
+        if (ok)
+            endoscope_show_dialog(_TR("DLG_TITLE_CAPTURE"), _TR("DLG_MSG_PHOTO_SAVED"), _TR("DLG_BTN_OK"));
+        else
+            endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), "拍照失败", _TR("DLG_BTN_OK"));
+        break;
+    }
     case 6: /* 录像 */
         pthread_mutex_lock(&g_status_mutex);
         status->is_recording = !status->is_recording;
