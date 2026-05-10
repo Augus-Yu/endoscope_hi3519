@@ -521,31 +521,17 @@ static void btn_event_cb(lv_event_t * e)
             pthread_mutex_unlock(&g_status_mutex);
         }
         break;
-    case 7: { /* 电子放大 - 循环切换 1x → 1.5x → 2x */
+    case 7: {
+        printf("[Zoom] button clicked, level=%d\n", g_zoom_level);
         g_zoom_level = (g_zoom_level + 1) % 3;
         int w = zoom_config[g_zoom_level][0];
         int h = zoom_config[g_zoom_level][1];
         int x = zoom_config[g_zoom_level][2];
         int y = zoom_config[g_zoom_level][3];
+        printf("[Zoom] -> level=%d: %dx%d at (%d,%d)\n", g_zoom_level, w, h, x, y);
 
-        /* 更新 VO 显示区域 */
-        video_context_t *vc = video_get_context();
-        if (vc) {
-            VO_CHN_ATTR_S attr;
-            if (HI_MPI_VO_GetChnAttr(vc->vo_dev, vc->vo_chn, &attr) == HI_SUCCESS) {
-                attr.stRect.s32X = x;
-                attr.stRect.s32Y = y;
-                attr.stRect.u32Width = w;
-                attr.stRect.u32Height = h;
-                HI_MPI_VO_SetChnAttr(vc->vo_dev, vc->vo_chn, &attr);
-            }
-        }
-
-        /* 更新透明区域 */
-        g_varea_x = x;
-        g_varea_y = y;
-        g_varea_w = w;
-        g_varea_h = h;
+        /* 仅更新透明区域 (VO/VPSS 运行时无法改变输出分辨率) */
+        g_varea_x = x; g_varea_y = y; g_varea_w = w; g_varea_h = h;
 
         /* 更新按钮文字 */
         lv_obj_t *btn = lv_event_get_target_obj(e);
