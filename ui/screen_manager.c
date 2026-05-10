@@ -8,7 +8,7 @@ typedef struct {
     bool initialized;
 } screen_entry_t;
 
-static screen_entry_t screens[5] = {0};
+static screen_entry_t screens[6] = {0};
 static int current_screen = -1;
 
 void screen_manager_register(endoscope_screen_t id,

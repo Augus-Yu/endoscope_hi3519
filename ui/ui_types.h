@@ -14,6 +14,7 @@ typedef enum {
     ENDOSCOPE_SCREEN_SETTINGS,
     ENDOSCOPE_SCREEN_PLAYBACK,
     ENDOSCOPE_SCREEN_IMAGE_SETTINGS,
+    ENDOSCOPE_SCREEN_PLAYER,
 } endoscope_screen_t;
 
 typedef struct {

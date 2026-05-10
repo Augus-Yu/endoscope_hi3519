@@ -141,7 +141,7 @@ static void file_click_event(lv_event_t * e)
 
     if (playback_start(path) == 0) {
         lv_label_set_text(status_label, "正在播放...");
-        screen_manager_navigate_to(ENDOSCOPE_SCREEN_MAIN);
+        screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
     } else {
         lv_label_set_text(status_label, "播放失败");
     }

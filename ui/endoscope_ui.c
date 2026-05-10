@@ -13,6 +13,7 @@
 #include "endoscope_settings.h"
 #include "endoscope_playback.h"
 #include "endoscope_image_settings.h"
+#include "endoscope_player.h"
 #include "endoscope_dialogs.h"
 #include "lang_manager.h"
 #include "font_manager.h"
@@ -94,6 +95,10 @@ void endoscope_ui_init(void)
                             endoscope_image_settings_init,
                             endoscope_image_settings_show,
                             endoscope_image_settings_hide);
+    screen_manager_register(ENDOSCOPE_SCREEN_PLAYER,
+                            endoscope_player_init,
+                            endoscope_player_show,
+                            endoscope_player_hide);
 
     endoscope_dialogs_init();
 
