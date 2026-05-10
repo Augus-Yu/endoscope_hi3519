@@ -76,8 +76,6 @@ void endoscope_playback_show(void)
 
 void endoscope_playback_hide(void)
 {
-    if (playback_is_running())
-        playback_stop();
 }
 
 static void refresh_list(void)
@@ -143,6 +141,7 @@ static void file_click_event(lv_event_t * e)
 
     if (playback_start(path) == 0) {
         lv_label_set_text(status_label, "正在播放...");
+        screen_manager_navigate_to(ENDOSCOPE_SCREEN_MAIN);
     } else {
         lv_label_set_text(status_label, "播放失败");
     }

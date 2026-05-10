@@ -53,7 +53,8 @@ SDK_SRCS := $(HI3519_SDK_DIR)/sample/common/sample_comm_vi.c \
             $(HI3519_SDK_DIR)/sample/common/sample_comm_vpss.c \
             $(HI3519_SDK_DIR)/sample/common/sample_comm_sys.c \
             $(HI3519_SDK_DIR)/sample/common/sample_comm_isp.c \
-            $(HI3519_SDK_DIR)/sample/common/sample_comm_venc.c
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_venc.c \
+            $(HI3519_SDK_DIR)/sample/common/sample_comm_vdec.c
 
 # 所有源文件
 ALL_SRCS := $(LVGL_SRCS) $(LVGL_DEMOS) $(UI_SRCS) $(PORT_SRCS) $(SDK_SRCS) $(MAIN_SRC)

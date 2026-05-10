@@ -15,6 +15,7 @@
 #include "hi3519_port/lv_port_disp.h"
 #include "hi3519_port/lv_port_indev.h"
 #include "hi3519_port/mpp_record.h"
+#include "hi3519_port/mpp_playback.h"
 
 #define VIDEO_X      760
 #define VIDEO_Y      340
@@ -114,7 +115,14 @@ int main(int argc, char **argv)
 
     if (sensor_connected) {
         if (mpp_video_start() != 0) {
-            fprintf(stderr, "Warning: Video start failed\n");
+            /* Video may already be running from previous session */
+            video_context_t *vctx = video_get_context();
+            if (vctx->state == VIDEO_STATE_RUNNING) {
+                g_video_started = 1;
+                printf("      Video already running\n");
+            } else {
+                fprintf(stderr, "Warning: Video start failed\n");
+            }
         } else {
             g_video_started = 1;
             printf("      Video capture started\n");
@@ -151,6 +159,8 @@ int main(int argc, char **argv)
     printf("\n[*] Shutting down...\n");
     g_running = 0;
     pthread_join(kbd_thread, NULL);
+
+    playback_stop();
 
     if (g_video_started) {
         printf("[*] Stopping video...\n");

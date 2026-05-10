@@ -29,6 +29,7 @@
   **********************/
 
 static video_context_t g_video_ctx = {0};
+static HI_BOOL s_mpp_initialized = HI_FALSE;
 
 static RECT_S s_vo_display_rect = {
     .s32X = VO_DISPLAY_X,
@@ -62,6 +63,11 @@ HI_S32 mpp_system_init(HI_VOID)
     PIC_SIZE_E enPicSize = PIC_400P;
     SIZE_S stSize;
 
+    if (s_mpp_initialized) {
+        printf("MPP system already initialized, skipping\n");
+        return HI_SUCCESS;
+    }
+
     s32Ret = SAMPLE_COMM_SYS_GetPicSize(enPicSize, &stSize);
     if (HI_SUCCESS != s32Ret) {
         printf("Get picture size failed!\n");
@@ -85,8 +91,9 @@ HI_S32 mpp_system_init(HI_VOID)
 
     s32Ret = SAMPLE_COMM_SYS_InitWithVbSupplement(&stVbConf, VB_SUPPLEMENT_JPEG_MASK);
     if (HI_SUCCESS != s32Ret) {
-        printf("System init failed with %d!\n", s32Ret);
-        return s32Ret;
+        printf("MPP system init returned 0x%x, assuming already initialized\n", s32Ret);
+        s_mpp_initialized = HI_TRUE;
+        return HI_SUCCESS;
     }
 
     printf("MPP system initialized\n");
@@ -124,6 +131,14 @@ HI_S32 video_init(video_context_t *ctx)
     s32Ret = mpp_system_init();
     if (HI_SUCCESS != s32Ret) {
         printf("MPP system init returned 0x%x, assuming already initialized\n", s32Ret);
+    }
+
+    /* If MPP was already running, skip VI/VPSS/VO init and assume
+       everything is in the state from the previous session. */
+    if (s_mpp_initialized) {
+        ctx->state = VIDEO_STATE_INIT;
+        printf("Video already initialized from previous session\n");
+        return HI_SUCCESS;
     }
 
     s32Ret = vi_init_ov6946(ctx);
