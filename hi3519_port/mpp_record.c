@@ -58,27 +58,65 @@ int record_start(const char *filename)
     pthread_mutex_lock(&g_rc.mutex);
     if (g_rc.recording) { pthread_mutex_unlock(&g_rc.mutex); return 0; }
 
+    /* 取当前VPSS输出分辨率写meta */
+    video_context_t *vctx = video_get_context();
+    HI_S32 rec_w = 400, rec_h = 400;
+    {
+        VPSS_CHN_ATTR_S ca;
+        if (HI_SUCCESS == HI_MPI_VPSS_GetChnAttr(vctx->vpss_grp, vctx->vpss_chn, &ca)) {
+            rec_w = (HI_S32)ca.u32Width;
+            rec_h = (HI_S32)ca.u32Height;
+        }
+    }
+
     char fname[128];
     generate_filename(fname, sizeof(fname), ".h264");
     char fullpath[512];
     snprintf(fullpath, sizeof(fullpath), "%s/%s", g_record_dir, fname);
 
+    /* 写 .meta: 回放时读取分辨率 */
+    {
+        char mp[512]; snprintf(mp, sizeof(mp), "%s.meta", fullpath);
+        FILE *mf = fopen(mp, "w");
+        if (mf) { fprintf(mf, "%d %d\n", rec_w, rec_h); fclose(mf); }
+    }
+
     g_rc.fp = fopen(fullpath, "wb");
     if (!g_rc.fp) { pthread_mutex_unlock(&g_rc.mutex); return -1; }
 
-    VENC_GOP_ATTR_S stGopAttr;
-    SAMPLE_COMM_VENC_GetGopAttr(VENC_GOPMODE_NORMALP, &stGopAttr);
+    /* 按实际分辨率创建VENC */
+    {
+        VENC_CHN_ATTR_S a; VENC_RECV_PIC_PARAM_S rp;
+        memset(&a, 0, sizeof(a));
+        a.stVencAttr.enType           = PT_H264;
+        a.stVencAttr.u32MaxPicWidth   = rec_w;
+        a.stVencAttr.u32MaxPicHeight  = rec_h;
+        a.stVencAttr.u32PicWidth      = rec_w;
+        a.stVencAttr.u32PicHeight     = rec_h;
+        a.stVencAttr.u32BufSize       = rec_w * rec_h * 3;
+        a.stVencAttr.u32Profile       = 0;
+        a.stVencAttr.bByFrame         = HI_TRUE;
+        /* CBR rate control */
+        a.stRcAttr.enRcMode = VENC_RC_MODE_H264CBR;
+        a.stRcAttr.stH264Cbr.u32Gop            = 30;
+        a.stRcAttr.stH264Cbr.u32StatTime       = 1;
+        a.stRcAttr.stH264Cbr.u32SrcFrameRate   = 30;
+        a.stRcAttr.stH264Cbr.fr32DstFrameRate  = 30;
+        a.stRcAttr.stH264Cbr.u32BitRate        = 2048;
 
-    if (SAMPLE_COMM_VENC_Start(g_rc.h264_chn, PT_H264, PIC_400P,
-                               SAMPLE_RC_CBR, 0, &stGopAttr) != HI_SUCCESS) {
-        printf("[Record] H.264 Start failed\n");
-        fclose(g_rc.fp); g_rc.fp = NULL;
-        pthread_mutex_unlock(&g_rc.mutex);
-        return -1;
+        if (HI_MPI_VENC_CreateChn(g_rc.h264_chn, &a) != HI_SUCCESS) {
+            printf("[Record] VENC CreateChn failed\n");
+            fclose(g_rc.fp); g_rc.fp = NULL;
+            pthread_mutex_unlock(&g_rc.mutex);
+            return -1;
+        }
+        rp.s32RecvPicNum = -1;
+        HI_MPI_VENC_StartRecvFrame(g_rc.h264_chn, &rp);
+        printf("[Record] VENC %dx%d created\n", rec_w, rec_h);
     }
+    printf("[Record] -> %s\n", fullpath);
     g_rc.h264_created = HI_TRUE;
 
-    video_context_t *vctx = video_get_context();
     if (SAMPLE_COMM_VPSS_Bind_VENC(vctx->vpss_grp, vctx->vpss_chn,
                                     g_rc.h264_chn) != HI_SUCCESS) {
         printf("[Record] VPSS Bind failed\n");

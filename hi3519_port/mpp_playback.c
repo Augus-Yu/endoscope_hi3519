@@ -1,6 +1,6 @@
 #include "mpp_playback.h"
 #include "mpp_video.h"
-#include "endoscope_main.h"
+#include "lv_port_disp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,13 +261,24 @@ int playback_start(const char *filepath)
 
     video_context_t *vc = video_get_context();
 
-    /* 断开预览 + 恢复VPSS到400x400 (VDEC只支持400x400) */
+    /* 从 .meta 文件读取录制分辨率 */
+    int pb_w = 400, pb_h = 400;
+    {
+        char mp[512]; snprintf(mp, sizeof(mp), "%s.meta", filepath);
+        FILE *mf = fopen(mp, "r");
+        if (mf) { fscanf(mf, "%d %d", &pb_w, &pb_h); fclose(mf); }
+    }
+    printf("[PB] recorded resolution: %dx%d\n", pb_w, pb_h);
+
+    int pos_x = (1920 - pb_w) / 2;
+    int pos_y = (1080 - pb_h) / 2;
+
+    /* 断开预览 + 重建VPSS为录制分辨率 */
     printf("[PB] Unbind VPSS->VO...\n");
     SAMPLE_COMM_VPSS_UnBind_VO(vc->vpss_grp, vc->vpss_chn,
                                 vc->vo_dev, vc->vo_chn);
     SAMPLE_COMM_VI_UnBind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
 
-    /* 销毁VPSS → 重建为400x400 */
     {
         VPSS_GRP_ATTR_S g;  VPSS_CHN_ATTR_S ac[VPSS_MAX_PHY_CHN_NUM];
         HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0};
@@ -278,13 +289,13 @@ int playback_start(const char *filepath)
         g.stFrameRate.s32SrcFrameRate = -1; g.stFrameRate.s32DstFrameRate = -1;
         g.enDynamicRange = DYNAMIC_RANGE_SDR8;
         g.enPixelFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
-        g.u32MaxW = 400; g.u32MaxH = 400;
+        g.u32MaxW = pb_w; g.u32MaxH = pb_h;
         g.bNrEn = HI_TRUE;
         g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
         g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 
         memset(ac, 0, sizeof(ac));
-        ac[vc->vpss_chn].u32Width=400; ac[vc->vpss_chn].u32Height=400;
+        ac[vc->vpss_chn].u32Width=pb_w; ac[vc->vpss_chn].u32Height=pb_h;
         ac[vc->vpss_chn].enChnMode=VPSS_CHN_MODE_USER;
         ac[vc->vpss_chn].enCompressMode=COMPRESS_MODE_NONE;
         ac[vc->vpss_chn].enDynamicRange=DYNAMIC_RANGE_SDR8;
@@ -298,28 +309,28 @@ int playback_start(const char *filepath)
         SAMPLE_COMM_VI_Bind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
     }
 
-    /* 同步恢复VO到400x400 */
+    /* 同步VO */
     {
         VO_LAYER VoLayer = vc->vo_dev;
         VO_VIDEO_LAYER_ATTR_S la;
         HI_MPI_VO_GetVideoLayerAttr(VoLayer, &la);
         SAMPLE_COMM_VO_StopChn(VoLayer, VO_MODE_1MUX);
         SAMPLE_COMM_VO_StopLayer(VoLayer);
-        la.stImageSize.u32Width=400; la.stImageSize.u32Height=400;
-        la.stDispRect.s32X=760; la.stDispRect.s32Y=340;
-        la.stDispRect.u32Width=400; la.stDispRect.u32Height=400;
+        la.stImageSize.u32Width=pb_w; la.stImageSize.u32Height=pb_h;
+        la.stDispRect.s32X=pos_x; la.stDispRect.s32Y=pos_y;
+        la.stDispRect.u32Width=pb_w; la.stDispRect.u32Height=pb_h;
         SAMPLE_COMM_VO_StartLayer(VoLayer, &la);
         SAMPLE_COMM_VO_StartChn(VoLayer, VO_MODE_1MUX);
     }
-    printf("[PB] VPSS+VO reset to 400x400\n");
-    endoscope_main_reset_zoom(); /* 同步UI zoom状态 */
+    lv_port_disp_set_video_area(pos_x, pos_y, pb_w, pb_h);
+    printf("[PB] VPSS+VO reset to %dx%d\n", pb_w, pb_h);
 
     /* Init VDEC VB pool */
     SAMPLE_VDEC_ATTR stAttr;
     memset(&stAttr, 0, sizeof(stAttr));
     stAttr.enType                       = PT_H264;
-    stAttr.u32Width                     = 400;
-    stAttr.u32Height                    = 400;
+    stAttr.u32Width                     = pb_w;
+    stAttr.u32Height                    = pb_h;
     stAttr.enMode                       = VIDEO_MODE_FRAME;
     stAttr.stSapmleVdecVideo.enDecMode  = VIDEO_DEC_MODE_IP;
     stAttr.stSapmleVdecVideo.enBitWidth = DATA_BITWIDTH_8;
@@ -328,7 +339,6 @@ int playback_start(const char *filepath)
     stAttr.u32FrameBufCnt               = 5;
 
     printf("[PB] InitVBPool...\n");
-    /* 确保VDEC模块池干净 */
     HI_MPI_VB_ExitModCommPool(VB_UID_VDEC);
     if (SAMPLE_COMM_VDEC_InitVBPool(1, &stAttr) != HI_SUCCESS) {
         printf("[PB] FAIL InitVBPool\n");
@@ -342,12 +352,12 @@ int playback_start(const char *filepath)
     memset(&ca, 0, sizeof(ca));
     ca.enType                           = PT_H264;
     ca.enMode                           = VIDEO_MODE_FRAME;
-    ca.u32PicWidth                      = 400;
-    ca.u32PicHeight                     = 400;
-    ca.u32StreamBufSize                 = 400 * 400 * 6;
+    ca.u32PicWidth                      = pb_w;
+    ca.u32PicHeight                     = pb_h;
+    ca.u32StreamBufSize                 = pb_w * pb_h * 6;
     ca.u32FrameBufCnt                   = 5;
     ca.u32FrameBufSize                  = VDEC_GetPicBufferSize(
-        PT_H264, 400, 400,
+        PT_H264, pb_w, pb_h,
         PIXEL_FORMAT_YVU_SEMIPLANAR_420,
         DATA_BITWIDTH_8, 0);
     ca.stVdecVideoAttr.u32RefFrameNum   = 2;

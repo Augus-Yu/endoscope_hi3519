@@ -495,16 +495,14 @@ static void btn_event_cb(lv_event_t * e)
             lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_RECORD, 0);
             lv_obj_clear_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(time_label, "00:00:00");
             if(record_timer) {
                 lv_timer_delete(record_timer);
                 record_timer = NULL;
             }
             record_timer = lv_timer_create(record_timer_cb, 1000, NULL);
         } else {
-            record_stop();
-            lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_BG, 0);
-            lv_obj_add_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
+            /* 先停定时器再停录像, 避免回调累加 */
             if(record_timer) {
                 lv_timer_delete(record_timer);
                 record_timer = NULL;
@@ -512,6 +510,11 @@ static void btn_event_cb(lv_event_t * e)
             pthread_mutex_lock(&g_status_mutex);
             status->recording_time = 0;
             pthread_mutex_unlock(&g_status_mutex);
+            lv_label_set_text(time_label, "00:00:00");
+            record_stop();
+            lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_BG, 0);
+            lv_obj_add_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
         }
         break;
     case 7: {
@@ -591,6 +594,7 @@ void endoscope_main_update_patient_info(void)
 void endoscope_main_reset_zoom(void)
 {
     g_zoom_level = 0;
+    video_set_zoom(760, 340, 400, 400);
     lv_port_disp_set_video_area(760, 340, 400, 400);
     printf("[Zoom] reset to 1x (400x400)\n");
 }
