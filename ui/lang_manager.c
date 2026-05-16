@@ -99,6 +99,9 @@ static const translation_entry_t en_translations[] = {
     {"ABOUT_DEVICE", "Device Name"},
     {"ABOUT_MODEL", "Model"},
 
+    /* 对话框消息 */
+    {"DLG_NO_ENDOSCOPE_MSG", "Endoscope not connected"},
+
     /* 对话框标题 */
     {"DLG_TITLE_PATIENT", "Patient Information"},
     {"DLG_TITLE_BALANCE", "White Balance"},
@@ -125,6 +128,22 @@ static const translation_entry_t en_translations[] = {
     {"DLG_PASSWORD_TOO_SHORT", "Password too short"},
     {"DLG_PASSWORD_NOT_MATCH", "Passwords do not match"},
     
+    /* 录像回放 */
+    {"PLAYBACK_TITLE", "Video Playback"},
+    {"PLAYBACK_BACK", "< Back"},
+    {"PLAYBACK_REFRESH", "Refresh"},
+    {"PLAYBACK_NO_FILES", "No video files"},
+    {"PLAYBACK_FILE_PREFIX", "[Video]"},
+    {"PLAYBACK_FAILED", "Playback failed"},
+
+    /* 图像设置 */
+    {"IMG_SET_TITLE", "Image"},
+    {"IMG_SET_BACK", "< Back"},
+    {"IMG_BRIGHTNESS", "Brightness"},
+    {"IMG_CONTRAST", "Contrast"},
+    {"IMG_SATURATION", "Saturation"},
+    {"IMG_SHARPNESS", "Sharpness"},
+
     /* 提示信息 */
     {"MSG_NO_STORAGE", "No storage device"},
     {"MSG_NO_SIGNAL", "No video signal"},
@@ -219,6 +238,9 @@ static const translation_entry_t zh_translations[] = {
     {"ABOUT_DEVICE", "设备名称"},
     {"ABOUT_MODEL", "设备型号"},
 
+    /* 对话框消息 */
+    {"DLG_NO_ENDOSCOPE_MSG", "内窥镜未连接"},
+
     /* 对话框标题 */
     {"DLG_TITLE_PATIENT", "患者资料"},
     {"DLG_TITLE_BALANCE", "白平衡"},
@@ -245,6 +267,22 @@ static const translation_entry_t zh_translations[] = {
     {"DLG_PASSWORD_TOO_SHORT", "密码太短"},
     {"DLG_PASSWORD_NOT_MATCH", "密码不匹配"},
     
+    /* 录像回放 */
+    {"PLAYBACK_TITLE", "录像回放"},
+    {"PLAYBACK_BACK", "< 返回"},
+    {"PLAYBACK_REFRESH", "刷新"},
+    {"PLAYBACK_NO_FILES", "无录像文件"},
+    {"PLAYBACK_FILE_PREFIX", "[视]"},
+    {"PLAYBACK_FAILED", "播放失败"},
+
+    /* 图像设置 */
+    {"IMG_SET_TITLE", "图像"},
+    {"IMG_SET_BACK", "< 返回"},
+    {"IMG_BRIGHTNESS", "亮度"},
+    {"IMG_CONTRAST", "对比度"},
+    {"IMG_SATURATION", "饱和度"},
+    {"IMG_SHARPNESS", "锐度"},
+
     /* 提示信息 */
     {"MSG_NO_STORAGE", "无存储设备"},
     {"MSG_NO_SIGNAL", "无视频信号"},
@@ -257,17 +295,6 @@ static struct {
     char current_lang[16];
     bool initialized;
 } g_lang = {0};
-
-static int get_translation_count(const translation_entry_t * trans)
-{
-    /* 计算数组大小 - 使用sizeof编译期确定 */
-    if(trans == en_translations) {
-        return sizeof(en_translations) / sizeof(en_translations[0]);
-    } else if(trans == zh_translations) {
-        return sizeof(zh_translations) / sizeof(zh_translations[0]);
-    }
-    return 0;
-}
 
 bool lang_manager_init(const char * lang_dir)
 {

@@ -32,4 +32,9 @@ extern volatile int g_varea_y;
 extern volatile int g_varea_w;
 extern volatile int g_varea_h;
 
+/**
+ * @brief Thread-safe setter for video transparent area
+ */
+void lv_port_disp_set_video_area(int x, int y, int w, int h);
+
 #endif // LV_PORT_DISP_H

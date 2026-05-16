@@ -29,7 +29,8 @@
   **********************/
 
 static video_context_t g_video_ctx = {0};
-static HI_BOOL s_mpp_initialized = HI_FALSE;
+static HI_BOOL s_mpp_init_called = HI_FALSE;
+static HI_BOOL s_mpp_was_running = HI_FALSE;
 
 static RECT_S s_vo_display_rect = {
     .s32X = VO_DISPLAY_X,
@@ -37,6 +38,7 @@ static RECT_S s_vo_display_rect = {
     .u32Width = VO_DISPLAY_WIDTH,
     .u32Height = VO_DISPLAY_HEIGHT
 };
+static pthread_mutex_t s_vo_rect_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**********************
  *  STATIC PROTOTYPES
@@ -48,7 +50,6 @@ static HI_S32 vo_init(video_context_t *ctx);
 static HI_S32 bind_modules(video_context_t *ctx);
 static HI_VOID vi_deinit(video_context_t *ctx);
 static HI_VOID vpss_deinit(video_context_t *ctx);
-static HI_VOID vo_deinit(video_context_t *ctx);
 static HI_VOID unbind_modules(video_context_t *ctx);
 
 /**********************
@@ -63,7 +64,7 @@ HI_S32 mpp_system_init(HI_VOID)
     PIC_SIZE_E enPicSize = PIC_400P;
     SIZE_S stSize;
 
-    if (s_mpp_initialized) {
+    if (s_mpp_init_called) {
         printf("MPP system already initialized, skipping\n");
         return HI_SUCCESS;
     }
@@ -75,28 +76,40 @@ HI_S32 mpp_system_init(HI_VOID)
     }
 
     memset(&stVbConf, 0, sizeof(VB_CONFIG_S));
-    stVbConf.u32MaxPoolCnt = 2;
+    stVbConf.u32MaxPoolCnt = 3;
 
+    /* Pool 0: 400x400 标准帧缓冲 */
     u32BlkSize = COMMON_GetPicBufferSize(stSize.u32Width, stSize.u32Height,
                                           PIXEL_FORMAT, DATA_BITWIDTH_8,
                                           COMPRESS_MODE_SEG, DEFAULT_ALIGN);
     stVbConf.astCommPool[0].u64BlkSize = u32BlkSize;
     stVbConf.astCommPool[0].u32BlkCnt = 20;
 
+    /* Pool 1: VI原始 Bayer 数据 */
     u32BlkSize = VI_GetRawBufferSize(stSize.u32Width, stSize.u32Height,
                                        PIXEL_FORMAT_RGB_BAYER_16BPP,
                                        COMPRESS_MODE_NONE, DEFAULT_ALIGN);
     stVbConf.astCommPool[1].u64BlkSize = u32BlkSize;
     stVbConf.astCommPool[1].u32BlkCnt = 15;
 
+    /* Pool 2: 变焦大帧 800x800 */
+    u32BlkSize = COMMON_GetPicBufferSize(VIDEO_ZOOM_MAX_W, VIDEO_ZOOM_MAX_H,
+                                          PIXEL_FORMAT, DATA_BITWIDTH_8,
+                                          COMPRESS_MODE_SEG, DEFAULT_ALIGN);
+    stVbConf.astCommPool[2].u64BlkSize = u32BlkSize;
+    stVbConf.astCommPool[2].u32BlkCnt = 8;
+
     s32Ret = SAMPLE_COMM_SYS_InitWithVbSupplement(&stVbConf, VB_SUPPLEMENT_JPEG_MASK);
     if (HI_SUCCESS != s32Ret) {
         printf("MPP system init returned 0x%x, assuming already initialized\n", s32Ret);
-        s_mpp_initialized = HI_TRUE;
+        s_mpp_was_running = HI_TRUE;
+        s_mpp_init_called = HI_TRUE;
         return HI_SUCCESS;
     }
 
-    printf("MPP system initialized\n");
+    s_mpp_init_called = HI_TRUE;
+    printf("MPP system initialized (VB pool: 400x400 + %dx%d zoom)\n",
+           VIDEO_ZOOM_MAX_W, VIDEO_ZOOM_MAX_H);
     return HI_SUCCESS;
 }
 
@@ -135,7 +148,7 @@ HI_S32 video_init(video_context_t *ctx)
 
     /* If MPP was already running, skip VI/VPSS/VO init and assume
        everything is in the state from the previous session. */
-    if (s_mpp_initialized) {
+    if (s_mpp_was_running) {
         ctx->state = VIDEO_STATE_INIT;
         printf("Video already initialized from previous session\n");
         return HI_SUCCESS;
@@ -270,10 +283,157 @@ HI_U32 video_get_fps(HI_VOID)
 
 HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
 {
+    pthread_mutex_lock(&s_vo_rect_mutex);
     s_vo_display_rect.s32X = x;
     s_vo_display_rect.s32Y = y;
     s_vo_display_rect.u32Width = width;
     s_vo_display_rect.u32Height = height;
+    pthread_mutex_unlock(&s_vo_rect_mutex);
+    return HI_SUCCESS;
+}
+
+/**
+ * @brief 运行时电子放大 - 销毁重建VPSS组(模拟初始化)
+ * @param level 缩放级别: 0=1x(400), 1=1.5x(600), 2=2x(800)
+ * @details 运行时改VPSS分辨率无效, 只能销毁后重新CreateGrp.
+ *          不退出MPP系统(保fb0), 只重建VPSS组和VO层.
+ */
+HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
+{
+    video_context_t *ctx = video_get_context();
+    VO_LAYER VoLayer = ctx->vo_dev;
+    HI_S32 s32Ret;
+
+    if (ctx == NULL || ctx->state < VIDEO_STATE_RUNNING) {
+        printf("video_set_zoom: video not running\n");
+        return MPP_FAILURE;
+    }
+
+    printf("[ZOOM] === START: target=%dx%d pos=(%d,%d) ===\n",
+           width, height, x, y);
+
+    /* === 1. 读当前VPSS+VI状态 === */
+    {
+        VPSS_GRP_ATTR_S g;
+        VPSS_CHN_ATTR_S c;
+        HI_MPI_VPSS_GetGrpAttr(ctx->vpss_grp, &g);
+        HI_MPI_VPSS_GetChnAttr(ctx->vpss_grp, ctx->vpss_chn, &c);
+        printf("[ZOOM] VPSS before: GrpMax=%dx%d ChnOut=%dx%d\n",
+               g.u32MaxW, g.u32MaxH, c.u32Width, c.u32Height);
+
+        printf("[ZOOM] VI pipe=%d chn=%d dev=%d\n",
+               ctx->vi_pipe, ctx->vi_chn, ctx->vi_dev);
+    }
+
+    /* === 2. 停VO === */
+    printf("[ZOOM] Stop VO chn...\n");
+    s32Ret = HI_MPI_VO_DisableChn(VoLayer, ctx->vo_chn);
+    printf("[ZOOM] VO DisableChn ret=0x%x\n", s32Ret);
+    s32Ret = HI_MPI_VO_DisableVideoLayer(VoLayer);
+    printf("[ZOOM] VO DisableLayer ret=0x%x\n", s32Ret);
+
+    /* === 3. 解绑 (离线模式: VI→VPSS也需解绑, VI不停) === */
+    printf("[ZOOM] Unbind...\n");
+    s32Ret = SAMPLE_COMM_VPSS_UnBind_VO(ctx->vpss_grp, ctx->vpss_chn,
+                                ctx->vo_config.VoDev, ctx->vo_chn);
+    printf("[ZOOM] Unbind VpssVo ret=0x%x\n", s32Ret);
+    s32Ret = SAMPLE_COMM_VI_UnBind_VPSS(ctx->vi_pipe, ctx->vi_chn, ctx->vpss_grp);
+    printf("[ZOOM] Unbind ViVpss ret=0x%x\n", s32Ret);
+
+    /* === 4. 销毁VPSS === */
+    printf("[ZOOM] Destroy VPSS grp%d...\n", ctx->vpss_grp);
+    {
+        HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0};
+        ab[ctx->vpss_chn] = HI_TRUE;
+        s32Ret = SAMPLE_COMM_VPSS_Stop(ctx->vpss_grp, ab);
+        printf("[ZOOM] VPSS Stop ret=0x%x\n", s32Ret);
+    }
+
+    /* === 5. 重建VPSS === */
+    printf("[ZOOM] Create VPSS grp%d chn%d -> %dx%d...\n",
+           ctx->vpss_grp, ctx->vpss_chn, width, height);
+    {
+        VPSS_GRP_ATTR_S g;
+        VPSS_CHN_ATTR_S ac[VPSS_MAX_PHY_CHN_NUM];
+        HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0};
+
+        memset(&g, 0, sizeof(g));
+        g.stFrameRate.s32SrcFrameRate = -1;
+        g.stFrameRate.s32DstFrameRate = -1;
+        g.enDynamicRange = DYNAMIC_RANGE_SDR8;
+        g.enPixelFormat = PIXEL_FORMAT;
+        g.u32MaxW = (width  > 400) ? width  : 400;
+        g.u32MaxH = (height > 400) ? height : 400;
+        g.bNrEn = HI_TRUE;
+        g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
+        g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
+
+        memset(ac, 0, sizeof(ac));
+        ac[ctx->vpss_chn].u32Width  = width;
+        ac[ctx->vpss_chn].u32Height = height;
+        ac[ctx->vpss_chn].enChnMode = VPSS_CHN_MODE_USER;
+        ac[ctx->vpss_chn].enCompressMode = COMPRESS_MODE_NONE;
+        ac[ctx->vpss_chn].enDynamicRange = DYNAMIC_RANGE_SDR8;
+        ac[ctx->vpss_chn].enVideoFormat = VIDEO_FORMAT_LINEAR;
+        ac[ctx->vpss_chn].enPixelFormat = PIXEL_FORMAT;
+        ac[ctx->vpss_chn].stFrameRate.s32SrcFrameRate = ctx->fps;
+        ac[ctx->vpss_chn].stFrameRate.s32DstFrameRate = ctx->fps;
+        ac[ctx->vpss_chn].stAspectRatio.enMode = ASPECT_RATIO_NONE;
+
+        ab[ctx->vpss_chn] = HI_TRUE;
+        s32Ret = SAMPLE_COMM_VPSS_Start(ctx->vpss_grp, ab, &g, ac);
+        printf("[ZOOM] VPSS Start(Create+StartGrp+SetChn+Enable) ret=0x%x\n", s32Ret);
+        if (HI_SUCCESS != s32Ret) return s32Ret;
+    }
+
+    /* === 6. 读重建后VPSS状态 === */
+    {
+        VPSS_GRP_ATTR_S g;
+        VPSS_CHN_ATTR_S c;
+        HI_MPI_VPSS_GetGrpAttr(ctx->vpss_grp, &g);
+        HI_MPI_VPSS_GetChnAttr(ctx->vpss_grp, ctx->vpss_chn, &c);
+        printf("[ZOOM] VPSS after: GrpMax=%dx%d ChnOut=%dx%d\n",
+               g.u32MaxW, g.u32MaxH, c.u32Width, c.u32Height);
+    }
+
+    /* === 7. 重绑 === */
+    printf("[ZOOM] Rebind...\n");
+    s32Ret = SAMPLE_COMM_VI_Bind_VPSS(ctx->vi_pipe, ctx->vi_chn, ctx->vpss_grp);
+    printf("[ZOOM] Bind ViVpss ret=0x%x\n", s32Ret);
+    s32Ret = SAMPLE_COMM_VPSS_Bind_VO(ctx->vpss_grp, ctx->vpss_chn,
+                              ctx->vo_config.VoDev, ctx->vo_chn);
+    printf("[ZOOM] Bind VpssVo ret=0x%x\n", s32Ret);
+
+    /* === 9. 重启VO === */
+    printf("[ZOOM] Start VO %dx%d at (%d,%d)...\n", width, height, x, y);
+    {
+        VO_VIDEO_LAYER_ATTR_S la;
+        s32Ret = HI_MPI_VO_GetVideoLayerAttr(VoLayer, &la);
+        printf("[ZOOM] VO GetLayerAttr ret=0x%x\n", s32Ret);
+        la.stImageSize.u32Width  = width;
+        la.stImageSize.u32Height = height;
+        la.stDispRect.s32X = x;
+        la.stDispRect.s32Y = y;
+        la.stDispRect.u32Width  = width;
+        la.stDispRect.u32Height = height;
+        s32Ret = SAMPLE_COMM_VO_StartLayer(VoLayer, &la);
+        printf("[ZOOM] VO StartLayer ret=0x%x\n", s32Ret);
+        s32Ret = SAMPLE_COMM_VO_StartChn(VoLayer, VO_MODE_1MUX);
+        printf("[ZOOM] VO StartChn ret=0x%x\n", s32Ret);
+    }
+
+    /* === 10. 最终VPSS状态 === */
+    {
+        VPSS_GRP_ATTR_S g;
+        VPSS_CHN_ATTR_S c;
+        HI_MPI_VPSS_GetGrpAttr(ctx->vpss_grp, &g);
+        HI_MPI_VPSS_GetChnAttr(ctx->vpss_grp, ctx->vpss_chn, &c);
+        printf("[ZOOM] VPSS final: GrpMax=%dx%d ChnOut=%dx%d\n",
+               g.u32MaxW, g.u32MaxH, c.u32Width, c.u32Height);
+    }
+
+    video_set_position(x, y, width, height);
+    printf("video_set_zoom: (%d,%d %dx%d) reinit done\n", x, y, width, height);
     return HI_SUCCESS;
 }
 
@@ -302,8 +462,9 @@ static HI_S32 vi_init_ov6946(video_context_t *ctx)
     ctx->vi_config.astViInfo[s32WorkSnsId].stSnsInfo.MipiDev = ctx->vi_dev;
     ctx->vi_config.astViInfo[s32WorkSnsId].stDevInfo.ViDev = ctx->vi_dev;
     ctx->vi_config.astViInfo[s32WorkSnsId].stDevInfo.enWDRMode = enWDRMode;
+    /* 离线模式: VI和VPSS解耦, 帧经DDR传输, 支持运行时改VPSS分辨率 */
     ctx->vi_config.astViInfo[s32WorkSnsId].stPipeInfo.enMastPipeMode =
-        VI_ONLINE_VPSS_ONLINE;
+        VI_OFFLINE_VPSS_OFFLINE;
     ctx->vi_config.astViInfo[s32WorkSnsId].stPipeInfo.aPipe[0] = ctx->vi_pipe;
     ctx->vi_config.astViInfo[s32WorkSnsId].stPipeInfo.aPipe[1] = -1;
     ctx->vi_config.astViInfo[s32WorkSnsId].stPipeInfo.aPipe[2] = -1;
@@ -379,82 +540,40 @@ static HI_S32 vpss_init(video_context_t *ctx)
 static HI_S32 vo_init(video_context_t *ctx)
 {
     HI_S32 s32Ret;
-    VO_PUB_ATTR_S stVoPubAttr = {0};
-    VO_VIDEO_LAYER_ATTR_S stLayerAttr = {0};
-    VO_DEV VoDev = ctx->vo_dev;
-    VO_LAYER VoLayer = ctx->vo_dev;
-    RECT_S stDefDispRect = {0, 0, 1920, 1080};
+    SAMPLE_VO_CONFIG_S stVoConfig;
 
-    s32Ret = SAMPLE_COMM_VO_GetDefConfig(&ctx->vo_config);
+    s32Ret = SAMPLE_OV6946_COMM_VO_GetDefConfig(&stVoConfig);
     if (HI_SUCCESS != s32Ret) {
         printf("VO: GetDefConfig failed: 0x%x!\n", s32Ret);
         return s32Ret;
     }
 
-    /* 步骤1: 启动VO设备 */
-    stVoPubAttr.enIntfType = VO_INTF_TYPE;
-    stVoPubAttr.enIntfSync = VO_INTF_SYNC;
-    stVoPubAttr.u32BgColor = 0x00000000;
+    stVoConfig.VoDev         = ctx->vo_dev;
+    stVoConfig.enVoIntfType  = VO_INTF_TYPE;
+    stVoConfig.enIntfSync    = VO_INTF_SYNC;
+    stVoConfig.enPixFormat   = PIXEL_FORMAT;
+    stVoConfig.u32BgColor    = 0x00000000;
+    stVoConfig.u32DisBufLen  = 0;
+    stVoConfig.enVoMode      = VO_MODE_1MUX;
 
-    s32Ret = SAMPLE_COMM_VO_StartDev(VoDev, &stVoPubAttr);
+    pthread_mutex_lock(&s_vo_rect_mutex);
+    stVoConfig.stDispRect    = s_vo_display_rect;
+    stVoConfig.stImageSize.u32Width  = s_vo_display_rect.u32Width;
+    stVoConfig.stImageSize.u32Height = s_vo_display_rect.u32Height;
+    pthread_mutex_unlock(&s_vo_rect_mutex);
+
+    s32Ret = SAMPLE_OV6946_COMM_VO_StartVO(&stVoConfig);
     if (HI_SUCCESS != s32Ret) {
-        printf("VO: StartDev(Dev=%d) failed: 0x%x!\n", VoDev, s32Ret);
+        printf("VO: StartVO(OV6946) failed: 0x%x!\n", s32Ret);
         return s32Ret;
     }
 
-    /* 步骤2: 启动VO图层 */
-    s32Ret = SAMPLE_COMM_VO_GetWH(VO_INTF_SYNC,
-                                   &stLayerAttr.stDispRect.u32Width,
-                                   &stLayerAttr.stDispRect.u32Height,
-                                   &stLayerAttr.u32DispFrmRt);
-    if (HI_SUCCESS != s32Ret) {
-        printf("VO: GetWH failed: 0x%x!\n", s32Ret);
-        goto cleanup_dev;
-    }
-
-    stLayerAttr.enPixFormat = ctx->vo_config.enPixFormat;
-    stLayerAttr.bClusterMode = HI_FALSE;
-    stLayerAttr.bDoubleFrame = HI_FALSE;
-
-    if (0 != memcmp(&s_vo_display_rect, &stDefDispRect, sizeof(RECT_S))) {
-        stLayerAttr.stDispRect = s_vo_display_rect;
-    }
-
-    stLayerAttr.stImageSize.u32Width = ctx->width;
-    stLayerAttr.stImageSize.u32Height = ctx->height;
-
-    s32Ret = SAMPLE_COMM_VO_StartLayer(VoLayer, &stLayerAttr);
-    if (HI_SUCCESS != s32Ret) {
-        printf("VO: StartLayer(Layer=%d) failed: 0x%x!\n", VoLayer, s32Ret);
-        goto cleanup_dev;
-    }
-
-    /* 步骤3: 启动VO通道 */
-    s32Ret = SAMPLE_COMM_VO_StartChn(VoLayer, VO_MODE_1MUX);
-    if (HI_SUCCESS != s32Ret) {
-        printf("VO: StartChn(Layer=%d, Mode=1MUX) failed: 0x%x!\n", VoLayer, s32Ret);
-        goto cleanup_layer;
-    }
-
-    /* 步骤4: 启动HDMI输出 */
-    s32Ret = SAMPLE_COMM_VO_HdmiStart(VO_INTF_SYNC);
-    if (HI_SUCCESS != s32Ret) {
-        printf("VO: HdmiStart(Sync=%d) failed: 0x%x!\n", VO_INTF_SYNC, s32Ret);
-        goto cleanup_chn;
-    }
+    memcpy(&ctx->vo_config, &stVoConfig, sizeof(stVoConfig));
 
     printf("VO initialized at (%d,%d) %dx%d\n",
            s_vo_display_rect.s32X, s_vo_display_rect.s32Y,
            s_vo_display_rect.u32Width, s_vo_display_rect.u32Height);
     return HI_SUCCESS;
-
-cleanup_chn:
-    SAMPLE_COMM_VO_StopChn(VoLayer, VO_MODE_1MUX);
-cleanup_layer:
-    SAMPLE_COMM_VO_StopLayer(VoLayer);
-cleanup_dev:
-    SAMPLE_COMM_VO_StopDev(VoDev);
-    return s32Ret;
 }
 
 static HI_S32 bind_modules(video_context_t *ctx)
@@ -497,12 +616,6 @@ static HI_VOID vpss_deinit(video_context_t *ctx)
 
     SAMPLE_COMM_VPSS_Stop(ctx->vpss_grp, abChnEnable);
     printf("VPSS deinitialized\n");
-}
-
-static HI_VOID vo_deinit(video_context_t *ctx)
-{
-    SAMPLE_COMM_VO_StopVO(&ctx->vo_config);
-    printf("VO deinitialized\n");
 }
 
 static HI_VOID unbind_modules(video_context_t *ctx)

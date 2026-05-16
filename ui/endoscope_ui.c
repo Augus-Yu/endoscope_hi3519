@@ -127,7 +127,7 @@ void endoscope_set_endoscope_connected(bool connected)
 {
     status.endoscope_connected = connected;
     if(!connected && screen_manager_get_current() == ENDOSCOPE_SCREEN_MAIN) {
-        endoscope_show_dialog("Notice", "Endoscope not connected", "OK");
+        endoscope_show_dialog(_TR("DLG_TITLE_NOTICE"), _TR("DLG_NO_ENDOSCOPE_MSG"), _TR("DLG_OK"));
     }
 }
 

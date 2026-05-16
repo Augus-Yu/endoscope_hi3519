@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <linux/fb.h>
 #include <errno.h>
+#include <pthread.h>
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "sample_comm.h"
@@ -26,6 +27,7 @@ volatile int g_varea_x = 760;
 volatile int g_varea_y = 340;
 volatile int g_varea_w = 400;
 volatile int g_varea_h = 400;
+static pthread_mutex_t g_varea_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 extern lv_display_t * lv_display_create(int32_t hor_res, int32_t ver_res);
 extern void lv_display_set_flush_cb(lv_display_t * disp, void (*flush_cb)(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map));
@@ -69,6 +71,17 @@ static void lv_port_disp_flush_cb(lv_display_t * disp, const lv_area_t * area, u
     }
 
     if (fb_bpp == 32) {
+        /* Snapshot video area under mutex for consistent read */
+        int va_x, va_y, va_w, va_h;
+        if (pthread_mutex_trylock(&g_varea_mutex) == 0) {
+            va_x = g_varea_x; va_y = g_varea_y;
+            va_w = g_varea_w; va_h = g_varea_h;
+            pthread_mutex_unlock(&g_varea_mutex);
+        } else {
+            va_x = g_varea_x; va_y = g_varea_y;
+            va_w = g_varea_w; va_h = g_varea_h;
+        }
+
         uint32_t *src = (uint32_t *)px_map;
         for (int32_t row = 0; row < h; row++) {
             uint32_t *dst = (uint32_t *)((uint8_t*)fb_base + (y + row) * fix_line_length + x * 4);
@@ -76,8 +89,8 @@ static void lv_port_disp_flush_cb(lv_display_t * disp, const lv_area_t * area, u
                 int32_t abs_x = x + col;
                 int32_t abs_y = y + row;
                 if (g_video_trans_enable && !g_dialog_showing && !g_splash_showing &&
-                    abs_x >= g_varea_x && abs_x < g_varea_x + g_varea_w &&
-                    abs_y >= g_varea_y && abs_y < g_varea_y + g_varea_h) {
+                    abs_x >= va_x && abs_x < va_x + va_w &&
+                    abs_y >= va_y && abs_y < va_y + va_h) {
                     dst[col] = 0x0000FF00;
                 } else {
                     dst[col] = src[row * w + col];
@@ -234,6 +247,24 @@ cleanup_fd:
     close(fb_fd);
     fb_fd = -1;
     return ret;
+}
+
+void lv_port_disp_set_video_area(int x, int y, int w, int h)
+{
+    printf("[TRANS] set video area: (%d,%d %dx%d)\n", x, y, w, h);
+
+    /* 1. 先把旧透明区域的像素恢复 (用当前UI内容填充) */
+    /* 2. 更新透明区域为新值 */
+    pthread_mutex_lock(&g_varea_mutex);
+    g_varea_x = x;
+    g_varea_y = y;
+    g_varea_w = w;
+    g_varea_h = h;
+    pthread_mutex_unlock(&g_varea_mutex);
+
+    /* 3. 强制整屏重绘: invalidate后触发一轮LVGL处理 */
+    lv_obj_invalidate(lv_screen_active());
+    lv_timer_handler_run_in_period(5); /* 给5ms处理刷新 */
 }
 
 int lv_port_disp_snapshot(void *buf, size_t buf_size, uint32_t *width, uint32_t *height, uint32_t *stride, int *bpp)

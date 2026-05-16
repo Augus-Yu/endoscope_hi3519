@@ -1,6 +1,7 @@
 #include "endoscope_playback.h"
 #include "endoscope_ui.h"
 #include "screen_manager.h"
+#include "lang_manager.h"
 #include "ui_theme.h"
 #include "font_manager.h"
 #include "ui_helpers.h"
@@ -39,12 +40,12 @@ void endoscope_playback_init(void)
     lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 20, 0);
     lv_obj_add_event_cb(back_btn, back_btn_event, LV_EVENT_CLICKED, NULL);
     lv_obj_t * back_lbl = lv_label_create(back_btn);
-    lv_label_set_text(back_lbl, "< 返回");
+    lv_label_set_text(back_lbl, _TR("PLAYBACK_BACK"));
     UI_SET_FONT(back_lbl);
     lv_obj_center(back_lbl);
 
     lv_obj_t * title = lv_label_create(header);
-    lv_label_set_text(title, "录像回放");
+    lv_label_set_text(title, _TR("PLAYBACK_TITLE"));
     lv_obj_set_style_text_font(title, font_manager_get_font(), 0);
     lv_obj_set_style_text_color(title, UI_COLOR_TEXT, 0);
     lv_obj_center(title);
@@ -54,7 +55,7 @@ void endoscope_playback_init(void)
     lv_obj_align(refresh_btn, LV_ALIGN_RIGHT_MID, -20, 0);
     lv_obj_add_event_cb(refresh_btn, refresh_btn_event, LV_EVENT_CLICKED, NULL);
     lv_obj_t * refresh_lbl = lv_label_create(refresh_btn);
-    lv_label_set_text(refresh_lbl, "刷新");
+    lv_label_set_text(refresh_lbl, _TR("PLAYBACK_REFRESH"));
     UI_SET_FONT(refresh_lbl);
     lv_obj_center(refresh_lbl);
 
@@ -87,7 +88,7 @@ static void refresh_list(void)
     DIR *dir = opendir(RECORD_DIR);
     if (!dir) {
         lv_obj_t * lbl = lv_label_create(file_list);
-        lv_label_set_text(lbl, "无录像文件");
+        lv_label_set_text(lbl, _TR("PLAYBACK_NO_FILES"));
         lv_obj_set_style_text_color(lbl, UI_COLOR_TEXT, 0);
         return;
     }
@@ -102,7 +103,7 @@ static void refresh_list(void)
             continue;
 
         char label[256];
-        snprintf(label, sizeof(label), "[视] %s", entry->d_name);
+        snprintf(label, sizeof(label), "%s %s", _TR("PLAYBACK_FILE_PREFIX"), entry->d_name);
         lv_obj_t * btn = lv_list_add_btn(file_list, NULL, label);
 
         char fullpath[512];
@@ -115,7 +116,7 @@ static void refresh_list(void)
 
     if (count == 0) {
         lv_obj_t * lbl = lv_label_create(file_list);
-        lv_label_set_text(lbl, "无录像文件");
+        lv_label_set_text(lbl, _TR("PLAYBACK_NO_FILES"));
         lv_obj_set_style_text_color(lbl, UI_COLOR_TEXT, 0);
     }
 }
@@ -134,7 +135,6 @@ static void refresh_btn_event(lv_event_t * e)
 
 static void file_click_event(lv_event_t * e)
 {
-    lv_obj_t * btn = lv_event_get_target_obj(e);
     const char *path = lv_event_get_user_data(e);
     if (!path) return;
 
@@ -144,6 +144,6 @@ static void file_click_event(lv_event_t * e)
     if (playback_start(path) == 0) {
         screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
     } else {
-        lv_label_set_text(status_label, "播放失败");
+        lv_label_set_text(status_label, _TR("PLAYBACK_FAILED"));
     }
 }

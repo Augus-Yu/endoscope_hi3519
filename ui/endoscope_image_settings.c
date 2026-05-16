@@ -6,6 +6,7 @@
 #include "endoscope_image_settings.h"
 #include "endoscope_ui.h"
 #include "screen_manager.h"
+#include "lang_manager.h"
 #include "ui_theme.h"
 
 static lv_obj_t * image_settings_screen = NULL;
@@ -31,12 +32,12 @@ void endoscope_image_settings_init(void)
     lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 20, 0);
     lv_obj_add_event_cb(back_btn, back_btn_event, LV_EVENT_CLICKED, NULL);
     lv_obj_t * back_lbl = lv_label_create(back_btn);
-    lv_label_set_text(back_lbl, "< Back");
+    lv_label_set_text(back_lbl, _TR("IMG_SET_BACK"));
     lv_obj_center(back_lbl);
 
     /* Title */
     lv_obj_t * title = lv_label_create(header);
-    lv_label_set_text(title, "Image");
+    lv_label_set_text(title, _TR("IMG_SET_TITLE"));
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, UI_COLOR_TEXT, 0);
     lv_obj_center(title);
@@ -59,7 +60,7 @@ void endoscope_image_settings_init(void)
     lv_obj_set_style_border_width(row1, 0, 0);
 
     lv_obj_t * lbl1 = lv_label_create(row1);
-    lv_label_set_text(lbl1, "Brightness");
+    lv_label_set_text(lbl1, _TR("IMG_BRIGHTNESS"));
     lv_obj_align(lbl1, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t * slider1 = lv_slider_create(row1);
@@ -76,7 +77,7 @@ void endoscope_image_settings_init(void)
     lv_obj_set_style_border_width(row2, 0, 0);
 
     lv_obj_t * lbl2 = lv_label_create(row2);
-    lv_label_set_text(lbl2, "Contrast");
+    lv_label_set_text(lbl2, _TR("IMG_CONTRAST"));
     lv_obj_align(lbl2, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t * slider2 = lv_slider_create(row2);
@@ -93,7 +94,7 @@ void endoscope_image_settings_init(void)
     lv_obj_set_style_border_width(row3, 0, 0);
 
     lv_obj_t * lbl3 = lv_label_create(row3);
-    lv_label_set_text(lbl3, "Saturation");
+    lv_label_set_text(lbl3, _TR("IMG_SATURATION"));
     lv_obj_align(lbl3, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t * slider3 = lv_slider_create(row3);
@@ -110,7 +111,7 @@ void endoscope_image_settings_init(void)
     lv_obj_set_style_border_width(row4, 0, 0);
 
     lv_obj_t * lbl4 = lv_label_create(row4);
-    lv_label_set_text(lbl4, "Sharpness");
+    lv_label_set_text(lbl4, _TR("IMG_SHARPNESS"));
     lv_obj_align(lbl4, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t * slider4 = lv_slider_create(row4);

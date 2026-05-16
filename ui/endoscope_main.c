@@ -50,13 +50,6 @@ static lv_obj_t * led_slider = NULL;
 static int g_frozen = 0;
 static int g_zoom_level = 0;
 
-/* 缩放级别: {宽, 高, 居中X, 居中Y} */
-static const int zoom_config[3][4] = {
-    {400, 400, 760, 340},   /* 1x */
-    {600, 600, 660, 240},   /* 1.5x */
-    {800, 800, 560, 140},   /* 2x */
-};
-
 static pthread_mutex_t g_status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**********************
@@ -522,25 +515,22 @@ static void btn_event_cb(lv_event_t * e)
         }
         break;
     case 7: {
-        printf("[Zoom] button clicked, level=%d\n", g_zoom_level);
         g_zoom_level = (g_zoom_level + 1) % 3;
-        int w = zoom_config[g_zoom_level][0];
-        int h = zoom_config[g_zoom_level][1];
-        int x = zoom_config[g_zoom_level][2];
-        int y = zoom_config[g_zoom_level][3];
-        printf("[Zoom] -> level=%d: %dx%d at (%d,%d)\n", g_zoom_level, w, h, x, y);
+        int sizes[3] = {400, 600, 800};
+        const char *labels[3] = {"1x", "1.5x", "2x"};
+        int w = sizes[g_zoom_level];
+        int h = w;
+        int x = (1920 - w) / 2;
+        int y = (1080 - h) / 2;
+        printf("[Zoom] -> %s (%dx%d) at (%d,%d)\n",
+               labels[g_zoom_level], w, h, x, y);
 
-        /* 仅更新透明区域 (VO/VPSS 运行时无法改变输出分辨率) */
-        g_varea_x = x; g_varea_y = y; g_varea_w = w; g_varea_h = h;
+        video_set_zoom(x, y, w, h);
+        lv_port_disp_set_video_area(x, y, w, h);
 
-        /* 更新按钮文字 */
         lv_obj_t *btn = lv_event_get_target_obj(e);
         lv_obj_t *lbl = lv_obj_get_child(btn, 1);
-        if (lbl) {
-            char txt[32];
-            snprintf(txt, sizeof(txt), "%dx%d", w, h);
-            lv_label_set_text(lbl, txt);
-        }
+        if (lbl) lv_label_set_text(lbl, labels[g_zoom_level]);
         break;
     }
     case 8: /* 回放 */
@@ -596,4 +586,11 @@ void endoscope_main_update_patient_info(void)
             _TR("MAIN_PATIENT_GENDER"),
             _TR("MAIN_PATIENT_AGE"));
     }
+}
+
+void endoscope_main_reset_zoom(void)
+{
+    g_zoom_level = 0;
+    lv_port_disp_set_video_area(760, 340, 400, 400);
+    printf("[Zoom] reset to 1x (400x400)\n");
 }

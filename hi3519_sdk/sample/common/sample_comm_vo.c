@@ -1024,7 +1024,6 @@ HI_S32 SAMPLE_OV9734_COMM_VO_GetDefConfig(SAMPLE_VO_CONFIG_S *pstVoConfig)
 HI_S32 SAMPLE_OV6946_COMM_VO_StartVO(SAMPLE_VO_CONFIG_S *pstVoConfig)
 {
     RECT_S                 stDefDispRect  = {0, 0, 1920, 1080};
-    SIZE_S                 stDefImageSize = {400, 400};
 
     /*******************************************
     * VO device VoDev# information declaration.
@@ -1096,19 +1095,8 @@ HI_S32 SAMPLE_OV6946_COMM_VO_StartVO(SAMPLE_VO_CONFIG_S *pstVoConfig)
     {
         stLayerAttr.stDispRect = pstVoConfig->stDispRect;
     }
-    stLayerAttr.stImageSize.u32Width  = stDefImageSize.u32Width;
-    stLayerAttr.stImageSize.u32Height = stDefImageSize.u32Height;
-
-   // stLayerAttr.stImageSize.u32Width  = stLayerAttr.stDispRect.u32Width;
-   // stLayerAttr.stImageSize.u32Height = stLayerAttr.stDispRect.u32Height;
-
-    /******************************
-    //Set image size if changed.
-    ********************************/
-    if (0 != memcmp(&pstVoConfig->stImageSize, &stDefImageSize, sizeof(SIZE_S)))
-    {
-        stLayerAttr.stImageSize = pstVoConfig->stImageSize;
-    }
+    /* 直接使用config的stImageSize, config给什么就是什么 */
+    stLayerAttr.stImageSize = pstVoConfig->stImageSize;
     stLayerAttr.enDstDynamicRange     = pstVoConfig->enDstDynamicRange;
 
     if (pstVoConfig->u32DisBufLen)

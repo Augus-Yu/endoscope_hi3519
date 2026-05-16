@@ -45,6 +45,10 @@ extern "C" {
 #define VO_DISPLAY_WIDTH        400     /* OV6946标准宽度 */
 #define VO_DISPLAY_HEIGHT       400     /* OV6946标准高度 */
 
+/* 电子变焦最大分辨率 (VPSS/VO预配上限) */
+#define VIDEO_ZOOM_MAX_W        800
+#define VIDEO_ZOOM_MAX_H        800
+
 /* 错误码 */
 #define MPP_SUCCESS             0
 #define MPP_FAILURE             -1
@@ -149,6 +153,13 @@ video_state_t video_get_state(video_context_t *ctx);
  * @return 0成功，其他失败
  */
 HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height);
+
+/**
+ * @brief 运行时电子放大 - 销毁重建VPSS组 + VO
+ * @param x 屏幕X, y 屏幕Y, width 宽度, height 高度
+ * @return 0成功，其他失败
+ */
+HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height);
 
 
 

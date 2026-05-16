@@ -1,5 +1,6 @@
 #include "mpp_playback.h"
 #include "mpp_video.h"
+#include "endoscope_main.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -260,10 +261,58 @@ int playback_start(const char *filepath)
 
     video_context_t *vc = video_get_context();
 
-    /* Disconnect live camera */
+    /* 断开预览 + 恢复VPSS到400x400 (VDEC只支持400x400) */
     printf("[PB] Unbind VPSS->VO...\n");
     SAMPLE_COMM_VPSS_UnBind_VO(vc->vpss_grp, vc->vpss_chn,
                                 vc->vo_dev, vc->vo_chn);
+    SAMPLE_COMM_VI_UnBind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
+
+    /* 销毁VPSS → 重建为400x400 */
+    {
+        VPSS_GRP_ATTR_S g;  VPSS_CHN_ATTR_S ac[VPSS_MAX_PHY_CHN_NUM];
+        HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0};
+        ab[vc->vpss_chn] = HI_TRUE;
+        SAMPLE_COMM_VPSS_Stop(vc->vpss_grp, ab);
+
+        memset(&g, 0, sizeof(g));
+        g.stFrameRate.s32SrcFrameRate = -1; g.stFrameRate.s32DstFrameRate = -1;
+        g.enDynamicRange = DYNAMIC_RANGE_SDR8;
+        g.enPixelFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
+        g.u32MaxW = 400; g.u32MaxH = 400;
+        g.bNrEn = HI_TRUE;
+        g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
+        g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
+
+        memset(ac, 0, sizeof(ac));
+        ac[vc->vpss_chn].u32Width=400; ac[vc->vpss_chn].u32Height=400;
+        ac[vc->vpss_chn].enChnMode=VPSS_CHN_MODE_USER;
+        ac[vc->vpss_chn].enCompressMode=COMPRESS_MODE_NONE;
+        ac[vc->vpss_chn].enDynamicRange=DYNAMIC_RANGE_SDR8;
+        ac[vc->vpss_chn].enVideoFormat=VIDEO_FORMAT_LINEAR;
+        ac[vc->vpss_chn].enPixelFormat=PIXEL_FORMAT_YVU_SEMIPLANAR_420;
+        ac[vc->vpss_chn].stFrameRate.s32SrcFrameRate=vc->fps;
+        ac[vc->vpss_chn].stFrameRate.s32DstFrameRate=vc->fps;
+        ac[vc->vpss_chn].stAspectRatio.enMode=ASPECT_RATIO_NONE;
+
+        SAMPLE_COMM_VPSS_Start(vc->vpss_grp, ab, &g, ac);
+        SAMPLE_COMM_VI_Bind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
+    }
+
+    /* 同步恢复VO到400x400 */
+    {
+        VO_LAYER VoLayer = vc->vo_dev;
+        VO_VIDEO_LAYER_ATTR_S la;
+        HI_MPI_VO_GetVideoLayerAttr(VoLayer, &la);
+        SAMPLE_COMM_VO_StopChn(VoLayer, VO_MODE_1MUX);
+        SAMPLE_COMM_VO_StopLayer(VoLayer);
+        la.stImageSize.u32Width=400; la.stImageSize.u32Height=400;
+        la.stDispRect.s32X=760; la.stDispRect.s32Y=340;
+        la.stDispRect.u32Width=400; la.stDispRect.u32Height=400;
+        SAMPLE_COMM_VO_StartLayer(VoLayer, &la);
+        SAMPLE_COMM_VO_StartChn(VoLayer, VO_MODE_1MUX);
+    }
+    printf("[PB] VPSS+VO reset to 400x400\n");
+    endoscope_main_reset_zoom(); /* 同步UI zoom状态 */
 
     /* Init VDEC VB pool */
     SAMPLE_VDEC_ATTR stAttr;
@@ -279,6 +328,8 @@ int playback_start(const char *filepath)
     stAttr.u32FrameBufCnt               = 5;
 
     printf("[PB] InitVBPool...\n");
+    /* 确保VDEC模块池干净 */
+    HI_MPI_VB_ExitModCommPool(VB_UID_VDEC);
     if (SAMPLE_COMM_VDEC_InitVBPool(1, &stAttr) != HI_SUCCESS) {
         printf("[PB] FAIL InitVBPool\n");
         SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn,
@@ -358,10 +409,13 @@ int playback_stop(void)
 
     if (g_pb.started) {
         HI_MPI_VDEC_StopRecvStream(g_pb.vdec_chn);
-        HI_MPI_VDEC_DestroyChn(g_pb.vdec_chn);
+        usleep(50000); /* 等50ms让VDEC完全停止 */
+        HI_S32 ret = HI_MPI_VDEC_DestroyChn(g_pb.vdec_chn);
+        printf("[PB] DestroyChn ret=0x%x\n", ret);
         g_pb.started = HI_FALSE;
     }
     SAMPLE_COMM_VDEC_ExitVBPool();
+    printf("[PB] ExitVBPool done\n");
 
     if (g_pb.fp) { fclose(g_pb.fp); g_pb.fp = NULL; }
     free(g_pb.index); g_pb.index = NULL;
@@ -490,8 +544,6 @@ static void *playback_thread(void *arg)
     int buf_size = 400 * 400 * 3 / 2;
     uint8_t *buf = malloc(buf_size);
     if (!buf) { g_pb.running = 0; return NULL; }
-
-    int frame_shown = 0;
 
     while (g_pb.running) {
         /* Handle seek request first (even when paused) */
