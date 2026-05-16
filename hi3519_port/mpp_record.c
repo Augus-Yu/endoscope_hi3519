@@ -60,7 +60,7 @@ int record_start(const char *filename)
 
     /* 取当前VPSS输出分辨率写meta */
     video_context_t *vctx = video_get_context();
-    HI_S32 rec_w = 400, rec_h = 400;
+    HI_S32 rec_w = (HI_S32)vctx->sensor->width, rec_h = (HI_S32)vctx->sensor->height;
     {
         VPSS_CHN_ATTR_S ca;
         if (HI_SUCCESS == HI_MPI_VPSS_GetChnAttr(vctx->vpss_grp, vctx->vpss_chn, &ca)) {
@@ -189,7 +189,8 @@ int snapshot_save(const char *filename)
     else
         snprintf(fullpath, sizeof(fullpath), "%s/%s", g_snapshot_dir, fname);
 
-    SIZE_S stSize = { .u32Width = 400, .u32Height = 400 };
+    SIZE_S stSize = { .u32Width  = video_get_context()->sensor->width,
+                      .u32Height = video_get_context()->sensor->height };
     if (SAMPLE_COMM_VENC_SnapStart(g_rc.jpeg_chn, &stSize, HI_FALSE) != HI_SUCCESS) {
         printf("[Record] JPEG SnapStart failed\n");
         return -1;

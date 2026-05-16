@@ -17,11 +17,7 @@
 #include "hi3519_port/lv_port_indev.h"
 #include "hi3519_port/mpp_record.h"
 #include "hi3519_port/mpp_playback.h"
-
-#define VIDEO_X      760
-#define VIDEO_Y      340
-#define VIDEO_WIDTH  400
-#define VIDEO_HEIGHT 400
+#include "hi3519_port/sensor_config.h"
 
 static volatile int g_running = 1;
 static volatile int g_video_started = 0;
@@ -100,10 +96,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (video_set_position(VIDEO_X, VIDEO_Y, VIDEO_WIDTH, VIDEO_HEIGHT) != 0) {
-        fprintf(stderr, "Warning: Video position setup failed\n");
-    } else {
-        printf("      Video position: (%d, %d), size: %dx%d\n", VIDEO_X, VIDEO_Y, VIDEO_WIDTH, VIDEO_HEIGHT);
+    {
+        const sensor_config_t *sensor = sensor_config_get_active();
+        HI_S32 vx, vy, vw, vh;
+        sensor_config_get_display_rect(sensor, &vx, &vy, &vw, &vh);
+        if (video_set_position(vx, vy, vw, vh) != 0) {
+            fprintf(stderr, "Warning: Video position setup failed\n");
+        } else {
+            printf("      Video position: (%d, %d), size: %dx%d\n", vx, vy, vw, vh);
+        }
     }
     printf("      MPP video system initialized\n\n");
 
@@ -136,7 +137,14 @@ int main(int argc, char **argv)
     printf("========================================\n");
     printf("System started!\n");
     printf("- UI on HiFB G0 layer\n");
-    printf("- Video on VO layer (%d,%d %dx%d)\n", VIDEO_X, VIDEO_Y, VIDEO_WIDTH, VIDEO_HEIGHT);
+    {
+        const sensor_config_t *sensor = sensor_config_get_active();
+        HI_S32 vx, vy, vw, vh;
+        sensor_config_get_display_rect(sensor, &vx, &vy, &vw, &vh);
+        printf("- Video on VO layer (%d,%d %dx%d)\n", vx, vy, vw, vh);
+        printf("- Sensor: %dx%d @ %dfps\n",
+               (int)sensor->width, (int)sensor->height, (int)sensor->fps);
+    }
     printf("- Press 's' to take snapshot, Ctrl+C to exit\n");
     printf("========================================\n\n");
 

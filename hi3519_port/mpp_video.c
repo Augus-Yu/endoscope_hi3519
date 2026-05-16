@@ -1,7 +1,7 @@
 /**
  * @file mpp_video.c
  * @brief Hi3519 MPP视频采集模块实现
- * @details OV6946传感器初始化、VI->VPSS->VO视频管道
+ * @details 传感器配置通过 sensor_config 抽象, VI->VPSS->VO视频管道
  */
 
 #include <stdio.h>
@@ -32,19 +32,14 @@ static video_context_t g_video_ctx = {0};
 static HI_BOOL s_mpp_init_called = HI_FALSE;
 static HI_BOOL s_mpp_was_running = HI_FALSE;
 
-static RECT_S s_vo_display_rect = {
-    .s32X = VO_DISPLAY_X,
-    .s32Y = VO_DISPLAY_Y,
-    .u32Width = VO_DISPLAY_WIDTH,
-    .u32Height = VO_DISPLAY_HEIGHT
-};
+static RECT_S s_vo_display_rect = {0}; /* video_init()中按传感器设置 */
 static pthread_mutex_t s_vo_rect_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**********************
  *  STATIC PROTOTYPES
  **********************/
 
-static HI_S32 vi_init_ov6946(video_context_t *ctx);
+static HI_S32 vi_init(video_context_t *ctx);
 static HI_S32 vpss_init(video_context_t *ctx);
 static HI_S32 vo_init(video_context_t *ctx);
 static HI_S32 bind_modules(video_context_t *ctx);
@@ -61,7 +56,7 @@ HI_S32 mpp_system_init(HI_VOID)
     HI_S32 s32Ret;
     VB_CONFIG_S stVbConf;
     HI_U32 u32BlkSize;
-    PIC_SIZE_E enPicSize = PIC_400P;
+    const sensor_config_t *sensor = sensor_config_get_active();
     SIZE_S stSize;
 
     if (s_mpp_init_called) {
@@ -69,7 +64,7 @@ HI_S32 mpp_system_init(HI_VOID)
         return HI_SUCCESS;
     }
 
-    s32Ret = SAMPLE_COMM_SYS_GetPicSize(enPicSize, &stSize);
+    s32Ret = SAMPLE_COMM_SYS_GetPicSize(sensor->pic_size, &stSize);
     if (HI_SUCCESS != s32Ret) {
         printf("Get picture size failed!\n");
         return s32Ret;
@@ -78,26 +73,26 @@ HI_S32 mpp_system_init(HI_VOID)
     memset(&stVbConf, 0, sizeof(VB_CONFIG_S));
     stVbConf.u32MaxPoolCnt = 3;
 
-    /* Pool 0: 400x400 标准帧缓冲 */
-    u32BlkSize = COMMON_GetPicBufferSize(stSize.u32Width, stSize.u32Height,
+    /* Pool 0: 传感器原生分辨率帧缓冲 */
+    u32BlkSize = COMMON_GetPicBufferSize(sensor->width, sensor->height,
                                           PIXEL_FORMAT, DATA_BITWIDTH_8,
                                           COMPRESS_MODE_SEG, DEFAULT_ALIGN);
     stVbConf.astCommPool[0].u64BlkSize = u32BlkSize;
-    stVbConf.astCommPool[0].u32BlkCnt = 20;
+    stVbConf.astCommPool[0].u32BlkCnt = sensor->vb_pool0_blk_cnt;
 
     /* Pool 1: VI原始 Bayer 数据 */
-    u32BlkSize = VI_GetRawBufferSize(stSize.u32Width, stSize.u32Height,
+    u32BlkSize = VI_GetRawBufferSize(sensor->width, sensor->height,
                                        PIXEL_FORMAT_RGB_BAYER_16BPP,
                                        COMPRESS_MODE_NONE, DEFAULT_ALIGN);
     stVbConf.astCommPool[1].u64BlkSize = u32BlkSize;
-    stVbConf.astCommPool[1].u32BlkCnt = 15;
+    stVbConf.astCommPool[1].u32BlkCnt = sensor->vb_pool1_blk_cnt;
 
-    /* Pool 2: 变焦大帧 800x800 */
-    u32BlkSize = COMMON_GetPicBufferSize(VIDEO_ZOOM_MAX_W, VIDEO_ZOOM_MAX_H,
+    /* Pool 2: 变焦大帧 */
+    u32BlkSize = COMMON_GetPicBufferSize(sensor->zoom_max_w, sensor->zoom_max_h,
                                           PIXEL_FORMAT, DATA_BITWIDTH_8,
                                           COMPRESS_MODE_SEG, DEFAULT_ALIGN);
     stVbConf.astCommPool[2].u64BlkSize = u32BlkSize;
-    stVbConf.astCommPool[2].u32BlkCnt = 8;
+    stVbConf.astCommPool[2].u32BlkCnt = sensor->vb_zoom_blk_cnt;
 
     s32Ret = SAMPLE_COMM_SYS_InitWithVbSupplement(&stVbConf, VB_SUPPLEMENT_JPEG_MASK);
     if (HI_SUCCESS != s32Ret) {
@@ -108,8 +103,9 @@ HI_S32 mpp_system_init(HI_VOID)
     }
 
     s_mpp_init_called = HI_TRUE;
-    printf("MPP system initialized (VB pool: 400x400 + %dx%d zoom)\n",
-           VIDEO_ZOOM_MAX_W, VIDEO_ZOOM_MAX_H);
+    printf("MPP system initialized (VB pool: %dx%d + %dx%d zoom)\n",
+           sensor->width, sensor->height,
+           sensor->zoom_max_w, sensor->zoom_max_h);
     return HI_SUCCESS;
 }
 
@@ -128,18 +124,22 @@ HI_S32 video_init(video_context_t *ctx)
     }
 
     memset(ctx, 0, sizeof(video_context_t));
+    ctx->sensor = sensor_config_get_active();
     ctx->state = VIDEO_STATE_IDLE;
-    ctx->vi_dev = OV6946_VI_DEV;
-    ctx->vi_pipe = OV6946_VI_PIPE;
-    ctx->vi_chn = OV6946_VI_CHN;
-    ctx->vpss_grp = OV6946_VPSS_GRP;
-    ctx->vpss_chn = OV6946_VPSS_CHN;
-    ctx->vo_dev = OV6946_VO_DEV;
-    ctx->vo_chn = OV6946_VO_CHN;
-    ctx->venc_chn = OV6946_VENC_CHN;
-    ctx->width = VIDEO_WIDTH;
-    ctx->height = VIDEO_HEIGHT;
-    ctx->fps = VIDEO_FPS;
+    ctx->vi_dev   = MPP_VI_DEV;
+    ctx->vi_pipe  = MPP_VI_PIPE;
+    ctx->vi_chn   = MPP_VI_CHN;
+    ctx->vpss_grp = MPP_VPSS_GRP;
+    ctx->vpss_chn = MPP_VPSS_CHN;
+    ctx->vo_dev   = MPP_VO_DEV;
+    ctx->vo_chn   = MPP_VO_CHN;
+    ctx->venc_chn = MPP_VENC_CHN;
+
+    /* 设置默认显示矩形 (1x居中) */
+    s_vo_display_rect.s32X = (1920 - (HI_S32)ctx->sensor->width) / 2;
+    s_vo_display_rect.s32Y = (1080 - (HI_S32)ctx->sensor->height) / 2;
+    s_vo_display_rect.u32Width  = ctx->sensor->width;
+    s_vo_display_rect.u32Height = ctx->sensor->height;
 
     s32Ret = mpp_system_init();
     if (HI_SUCCESS != s32Ret) {
@@ -154,7 +154,7 @@ HI_S32 video_init(video_context_t *ctx)
         return HI_SUCCESS;
     }
 
-    s32Ret = vi_init_ov6946(ctx);
+    s32Ret = vi_init(ctx);
     if (HI_SUCCESS != s32Ret) {
         printf("VI init failed!\n");
         ctx->state = VIDEO_STATE_ERROR;
@@ -278,7 +278,7 @@ HI_U32 video_get_fps(HI_VOID)
         return 0;
     }
 
-    return ctx->fps;
+    return ctx->sensor->fps;
 }
 
 HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
@@ -294,7 +294,7 @@ HI_S32 video_set_position(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
 
 /**
  * @brief 运行时电子放大 - 销毁重建VPSS组(模拟初始化)
- * @param level 缩放级别: 0=1x(400), 1=1.5x(600), 2=2x(800)
+ * @param level 缩放级别: 0=1x, 1=1.5x, 2=2x (尺寸由sensor配置)
  * @details 运行时改VPSS分辨率无效, 只能销毁后重新CreateGrp.
  *          不退出MPP系统(保fb0), 只重建VPSS组和VO层.
  */
@@ -362,8 +362,8 @@ HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
         g.stFrameRate.s32DstFrameRate = -1;
         g.enDynamicRange = DYNAMIC_RANGE_SDR8;
         g.enPixelFormat = PIXEL_FORMAT;
-        g.u32MaxW = (width  > 400) ? width  : 400;
-        g.u32MaxH = (height > 400) ? height : 400;
+        g.u32MaxW = ((HI_U32)width  > ctx->sensor->width)  ? (HI_U32)width  : ctx->sensor->width;
+        g.u32MaxH = ((HI_U32)height > ctx->sensor->height) ? (HI_U32)height : ctx->sensor->height;
         g.bNrEn = HI_TRUE;
         g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
         g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
@@ -376,8 +376,8 @@ HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
         ac[ctx->vpss_chn].enDynamicRange = DYNAMIC_RANGE_SDR8;
         ac[ctx->vpss_chn].enVideoFormat = VIDEO_FORMAT_LINEAR;
         ac[ctx->vpss_chn].enPixelFormat = PIXEL_FORMAT;
-        ac[ctx->vpss_chn].stFrameRate.s32SrcFrameRate = ctx->fps;
-        ac[ctx->vpss_chn].stFrameRate.s32DstFrameRate = ctx->fps;
+        ac[ctx->vpss_chn].stFrameRate.s32SrcFrameRate = (HI_S32)ctx->sensor->fps;
+        ac[ctx->vpss_chn].stFrameRate.s32DstFrameRate = (HI_S32)ctx->sensor->fps;
         ac[ctx->vpss_chn].stAspectRatio.enMode = ASPECT_RATIO_NONE;
 
         ab[ctx->vpss_chn] = HI_TRUE;
@@ -443,11 +443,11 @@ HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
  *   STATIC FUNCTIONS
   **********************/
 
-static HI_S32 vi_init_ov6946(video_context_t *ctx)
+static HI_S32 vi_init(video_context_t *ctx)
 {
     HI_S32 s32Ret;
     HI_S32 s32ViCnt = 1;
-    HI_S32 s32WorkSnsId = 1;
+    HI_S32 s32WorkSnsId = ctx->sensor->sns_id;
 
     WDR_MODE_E enWDRMode = WDR_MODE_NONE;
     DYNAMIC_RANGE_E enDynamicRange = DYNAMIC_RANGE_SDR8;
@@ -458,7 +458,7 @@ static HI_S32 vi_init_ov6946(video_context_t *ctx)
     SAMPLE_COMM_VI_GetSensorInfo(&ctx->vi_config);
 
     ctx->vi_config.s32WorkingViNum = s32ViCnt;
-    ctx->vi_config.as32WorkingViId[0] = 1;
+    ctx->vi_config.as32WorkingViId[0] = s32WorkSnsId;
     ctx->vi_config.astViInfo[s32WorkSnsId].stSnsInfo.MipiDev = ctx->vi_dev;
     ctx->vi_config.astViInfo[s32WorkSnsId].stDevInfo.ViDev = ctx->vi_dev;
     ctx->vi_config.astViInfo[s32WorkSnsId].stDevInfo.enWDRMode = enWDRMode;
@@ -505,21 +505,21 @@ static HI_S32 vpss_init(video_context_t *ctx)
     stVpssGrpAttr.stFrameRate.s32DstFrameRate = -1;
     stVpssGrpAttr.enDynamicRange = enDynamicRange;
     stVpssGrpAttr.enPixelFormat = enPixFormat;
-    stVpssGrpAttr.u32MaxW = ctx->width;
-    stVpssGrpAttr.u32MaxH = ctx->height;
+    stVpssGrpAttr.u32MaxW = ctx->sensor->width;
+    stVpssGrpAttr.u32MaxH = ctx->sensor->height;
     stVpssGrpAttr.bNrEn = HI_TRUE;
     stVpssGrpAttr.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
     stVpssGrpAttr.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 
-    astVpssChnAttr[ctx->vpss_chn].u32Width = ctx->width;
-    astVpssChnAttr[ctx->vpss_chn].u32Height = ctx->height;
+    astVpssChnAttr[ctx->vpss_chn].u32Width = ctx->sensor->width;
+    astVpssChnAttr[ctx->vpss_chn].u32Height = ctx->sensor->height;
     astVpssChnAttr[ctx->vpss_chn].enChnMode = VPSS_CHN_MODE_USER;
     astVpssChnAttr[ctx->vpss_chn].enCompressMode = enCompressMode;
     astVpssChnAttr[ctx->vpss_chn].enDynamicRange = enDynamicRange;
     astVpssChnAttr[ctx->vpss_chn].enVideoFormat = enVideoFormat;
     astVpssChnAttr[ctx->vpss_chn].enPixelFormat = enPixFormat;
-    astVpssChnAttr[ctx->vpss_chn].stFrameRate.s32SrcFrameRate = ctx->fps;
-    astVpssChnAttr[ctx->vpss_chn].stFrameRate.s32DstFrameRate = ctx->fps;
+    astVpssChnAttr[ctx->vpss_chn].stFrameRate.s32SrcFrameRate = (HI_S32)ctx->sensor->fps;
+    astVpssChnAttr[ctx->vpss_chn].stFrameRate.s32DstFrameRate = (HI_S32)ctx->sensor->fps;
     astVpssChnAttr[ctx->vpss_chn].u32Depth = 0;
     astVpssChnAttr[ctx->vpss_chn].bMirror = HI_FALSE;
     astVpssChnAttr[ctx->vpss_chn].bFlip = HI_FALSE;
@@ -542,12 +542,7 @@ static HI_S32 vo_init(video_context_t *ctx)
     HI_S32 s32Ret;
     SAMPLE_VO_CONFIG_S stVoConfig;
 
-    s32Ret = SAMPLE_OV6946_COMM_VO_GetDefConfig(&stVoConfig);
-    if (HI_SUCCESS != s32Ret) {
-        printf("VO: GetDefConfig failed: 0x%x!\n", s32Ret);
-        return s32Ret;
-    }
-
+    memset(&stVoConfig, 0, sizeof(stVoConfig));
     stVoConfig.VoDev         = ctx->vo_dev;
     stVoConfig.enVoIntfType  = VO_INTF_TYPE;
     stVoConfig.enIntfSync    = VO_INTF_SYNC;
@@ -564,7 +559,7 @@ static HI_S32 vo_init(video_context_t *ctx)
 
     s32Ret = SAMPLE_OV6946_COMM_VO_StartVO(&stVoConfig);
     if (HI_SUCCESS != s32Ret) {
-        printf("VO: StartVO(OV6946) failed: 0x%x!\n", s32Ret);
+        printf("VO: StartVO failed: 0x%x!\n", s32Ret);
         return s32Ret;
     }
 

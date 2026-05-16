@@ -431,7 +431,10 @@ static void btn_event_cb(lv_event_t * e)
             VIDEO_FRAME_INFO_S vo_frame;
             memset(&vo_frame, 0, sizeof(vo_frame));
             if (HI_MPI_VO_GetChnFrame(vc->vo_dev, vc->vo_chn, &vo_frame, 500) == HI_SUCCESS) {
-                SIZE_S stSize = {400, 400};
+                SIZE_S stSize = {
+                    (HI_U32)vc->sensor->width,
+                    (HI_U32)vc->sensor->height
+                };
                 if (SAMPLE_COMM_VENC_SnapStart(snap_chn, &stSize, HI_FALSE) == HI_SUCCESS) {
                     VENC_RECV_PIC_PARAM_S recv = { .s32RecvPicNum = 1 };
                     HI_MPI_VENC_StartRecvFrame(snap_chn, &recv);
@@ -518,13 +521,13 @@ static void btn_event_cb(lv_event_t * e)
         }
         break;
     case 7: {
-        g_zoom_level = (g_zoom_level + 1) % 3;
-        int sizes[3] = {400, 600, 800};
-        const char *labels[3] = {"1x", "1.5x", "2x"};
-        int w = sizes[g_zoom_level];
-        int h = w;
+        const sensor_config_t *sensor = video_get_context()->sensor;
+        g_zoom_level = (g_zoom_level + 1) % sensor->zoom_level_count;
+        int w = (int)sensor->zoom_levels[g_zoom_level * 2];
+        int h = (int)sensor->zoom_levels[g_zoom_level * 2 + 1];
         int x = (1920 - w) / 2;
         int y = (1080 - h) / 2;
+        const char *labels[3] = {"1x", "1.5x", "2x"};
         printf("[Zoom] -> %s (%dx%d) at (%d,%d)\n",
                labels[g_zoom_level], w, h, x, y);
 
@@ -594,7 +597,10 @@ void endoscope_main_update_patient_info(void)
 void endoscope_main_reset_zoom(void)
 {
     g_zoom_level = 0;
-    video_set_zoom(760, 340, 400, 400);
-    lv_port_disp_set_video_area(760, 340, 400, 400);
-    printf("[Zoom] reset to 1x (400x400)\n");
+    const sensor_config_t *sensor = video_get_context()->sensor;
+    HI_S32 x, y, w, h;
+    sensor_config_get_display_rect(sensor, &x, &y, &w, &h);
+    video_set_zoom(x, y, w, h);
+    lv_port_disp_set_video_area(x, y, w, h);
+    printf("[Zoom] reset to 1x (%dx%d)\n", w, h);
 }

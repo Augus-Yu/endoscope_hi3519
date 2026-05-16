@@ -262,7 +262,7 @@ int playback_start(const char *filepath)
     video_context_t *vc = video_get_context();
 
     /* 从 .meta 文件读取录制分辨率 */
-    int pb_w = 400, pb_h = 400;
+    int pb_w = (int)vc->sensor->width, pb_h = (int)vc->sensor->height;
     {
         char mp[512]; snprintf(mp, sizeof(mp), "%s.meta", filepath);
         FILE *mf = fopen(mp, "r");
@@ -301,8 +301,8 @@ int playback_start(const char *filepath)
         ac[vc->vpss_chn].enDynamicRange=DYNAMIC_RANGE_SDR8;
         ac[vc->vpss_chn].enVideoFormat=VIDEO_FORMAT_LINEAR;
         ac[vc->vpss_chn].enPixelFormat=PIXEL_FORMAT_YVU_SEMIPLANAR_420;
-        ac[vc->vpss_chn].stFrameRate.s32SrcFrameRate=vc->fps;
-        ac[vc->vpss_chn].stFrameRate.s32DstFrameRate=vc->fps;
+        ac[vc->vpss_chn].stFrameRate.s32SrcFrameRate=(HI_S32)vc->sensor->fps;
+        ac[vc->vpss_chn].stFrameRate.s32DstFrameRate=(HI_S32)vc->sensor->fps;
         ac[vc->vpss_chn].stAspectRatio.enMode=ASPECT_RATIO_NONE;
 
         SAMPLE_COMM_VPSS_Start(vc->vpss_grp, ab, &g, ac);
@@ -551,7 +551,8 @@ static void *playback_thread(void *arg)
     (void)arg;
     if (!g_pb.fp) { g_pb.running = 0; return NULL; }
 
-    int buf_size = 400 * 400 * 3 / 2;
+    const sensor_config_t *sensor = sensor_config_get_active();
+    int buf_size = (int)(sensor->width * sensor->height * 3 / 2);
     uint8_t *buf = malloc(buf_size);
     if (!buf) { g_pb.running = 0; return NULL; }
 

@@ -11,6 +11,7 @@
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "sample_comm.h"
+#include "sensor_config.h"
 #include "hifb.h"
 
 #define DISP_W       1920
@@ -124,6 +125,15 @@ int lv_port_disp_init(void)
     int ret = -1;
     struct fb_var_screeninfo var_info = {0};
     struct fb_fix_screeninfo fix_info = {0};
+
+    /* 按传感器设置透明区域默认值 */
+    {
+        const sensor_config_t *sensor = sensor_config_get_active();
+        HI_S32 sx, sy, sw, sh;
+        sensor_config_get_display_rect(sensor, &sx, &sy, &sw, &sh);
+        g_varea_x = sx; g_varea_y = sy;
+        g_varea_w = sw; g_varea_h = sh;
+    }
 
     fb_fd = open(G0_FB_PATH, O_RDWR);
     if (fb_fd < 0) {
