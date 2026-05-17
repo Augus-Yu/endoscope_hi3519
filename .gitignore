@@ -1,24 +1,24 @@
-# Hi3519AV100 Endoscope UI - Git Ignore File
-# Build artifacts
+# 构建产物
 obj/
 bin/
-build/
 *.o
-*.a
-*.so
 *.elf
 
-# Dependencies
+# SDK 库文件保留 (编译必需)
+!hi3519_sdk/lib/*.a
+!hi3519_sdk/lib/*.so
+
+# 依赖文件
 *.d
 *.dep
-
-# Map files
 *.map
 
-# Binary output
-endoscope_ui
+# 备份文件
+*.bak
+*.orig
+*.backup
 
-# Editor files
+# 编辑器
 *.swp
 *.swo
 *~
@@ -27,14 +27,25 @@ endoscope_ui
 *.user
 *.sublime-*
 
-# OS files
+# 操作系统
 .DS_Store
 Thumbs.db
 
-# Backup files
-*.bak
-*.orig
-
-# Log files
+# 日志
 *.log
+
+# 图片资源
 image/
+
+# 录制/快照文件
+endoscope/
+*.h264
+*.meta
+endoscope_ui
+
+# 内部工具
+.claude/
+.sisyphus/
+
+# 字体目录
+lang/
