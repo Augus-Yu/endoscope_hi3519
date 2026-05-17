@@ -47,5 +47,6 @@ endoscope_ui
 .claude/
 .sisyphus/
 
-# 字体目录
-lang/
+# 旧翻译文件 (多语言用硬编码表)
+lang/*.lang
+lang/.lang_config
