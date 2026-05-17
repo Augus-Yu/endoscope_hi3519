@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "endoscope_main.h"
 #include "endoscope_ui.h"
 #include "screen_manager.h"
@@ -46,6 +48,7 @@ static lv_obj_t * patient_info_label = NULL;
 static lv_obj_t * date_time_label = NULL;
 static lv_timer_t * date_timer = NULL;
 static lv_obj_t * led_slider = NULL;
+static lv_obj_t * led_level_labels[6] = {NULL};
 static int g_frozen = 0;
 static int g_zoom_level = 0;
 
@@ -59,6 +62,7 @@ static void create_left_panel(lv_obj_t * parent);
 static void create_video_area(lv_obj_t * parent);
 static void create_right_panel(lv_obj_t * parent);
 static void btn_event_cb(lv_event_t * e);
+static void led_slider_event_cb(lv_event_t * e);
 static void record_timer_cb(lv_timer_t * timer);
 static void date_time_timer_cb(lv_timer_t * timer);
 static void choose_save_base(void);
@@ -361,14 +365,27 @@ static void create_right_panel(lv_obj_t * parent)
     lv_obj_set_style_text_color(led_label, MAIN_COLOR_TEXT, 0);
     lv_obj_set_pos(led_label, 8, 10 + 4 * (BTN_SIZE + 30) + 10);  /* 放在第4行按钮下方 */
 
-    /* 滑动条 */
+    /* 滑动条: 6档阶梯式, 标注0~5 */
     led_slider = lv_slider_create(panel);
     lv_obj_set_size(led_slider, 340, 24);
-    lv_obj_set_pos(led_slider, 15, 10 + 4 * (BTN_SIZE + 30) + 45);  /* 标签下方 */
+    lv_obj_set_pos(led_slider, 15, 10 + 4 * (BTN_SIZE + 30) + 45);
     lv_obj_set_style_bg_color(led_slider, MAIN_COLOR_BG, 0);
     lv_obj_set_style_bg_color(led_slider, MAIN_COLOR_ACCENT, LV_PART_INDICATOR);
-    lv_slider_set_range(led_slider, 0, 100);
-    lv_slider_set_value(led_slider, 50, LV_ANIM_OFF);
+    lv_slider_set_range(led_slider, 0, 5);
+    lv_slider_set_value(led_slider, 3, LV_ANIM_OFF);
+    lv_obj_add_event_cb(led_slider, led_slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* 档位标注 0~5, 等距排列 */
+    for (int i = 0; i < 6; i++) {
+        led_level_labels[i] = lv_label_create(panel);
+        char txt[4]; snprintf(txt, sizeof(txt), "%d", i);
+        lv_label_set_text(led_level_labels[i], txt);
+        lv_obj_set_style_text_color(led_level_labels[i], MAIN_COLOR_TEXT, 0);
+        lv_obj_set_style_text_font(led_level_labels[i], &lv_font_montserrat_14, 0);
+        lv_obj_set_pos(led_level_labels[i], 15 + i * 68, 10 + 4 * (BTN_SIZE + 30) + 72);
+    }
+    /* 初始高亮 3 档 */
+    lv_obj_set_style_text_color(led_level_labels[3], MAIN_COLOR_ACCENT, 0);
 }
 
 static void choose_save_base(void)
@@ -570,6 +587,25 @@ static void date_time_timer_cb(lv_timer_t * timer)
     if(date_time_label == NULL) return;
 
     ui_update_label_datetime(date_time_label, _TR("MAIN_DATE_PREFIX"));
+}
+
+static void led_slider_event_cb(lv_event_t * e)
+{
+    lv_obj_t * slider = lv_event_get_target_obj(e);
+    int level = (int)lv_slider_get_value(slider);
+    char val = (char)level;
+
+    /* 写入驱动 */
+    int fd = open("/dev/lm3630a", O_WRONLY);
+    if (fd >= 0) { write(fd, &val, 1); close(fd); }
+
+    /* 高亮当前档位标签, 其他恢复默认 */
+    for (int i = 0; i < 6; i++) {
+        if (!led_level_labels[i]) continue;
+        lv_obj_set_style_text_color(led_level_labels[i],
+            (i == level) ? MAIN_COLOR_ACCENT : MAIN_COLOR_TEXT, 0);
+    }
+    printf("[LED] brightness level: %d\n", level);
 }
 
 void endoscope_main_update_patient_info(void)
