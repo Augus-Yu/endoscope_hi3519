@@ -11,10 +11,46 @@ extern "C" {
 #endif
 
 #include "lvgl.h"
-#include "ui_types.h"
 #include "ui_theme.h"
 
+/*********************
+ *      DEFINES
+ *********************/
 
+#define DISPLAY_WIDTH   1920
+#define DISPLAY_HEIGHT  1080
+
+/*********************
+ *      TYPES
+ *********************/
+
+typedef enum {
+    ENDOSCOPE_SCREEN_SPLASH,
+    ENDOSCOPE_SCREEN_MAIN,
+    ENDOSCOPE_SCREEN_SETTINGS,
+    ENDOSCOPE_SCREEN_PLAYBACK,
+    ENDOSCOPE_SCREEN_IMAGE_SETTINGS,
+    ENDOSCOPE_SCREEN_PLAYER,
+} endoscope_screen_t;
+
+typedef struct {
+    char id[32];
+    char name[64];
+    char gender[8];
+    char age[8];
+    bool has_data;
+} patient_info_t;
+
+typedef struct {
+    bool endoscope_connected;
+    bool usb_connected;
+    bool is_recording;
+    bool is_capturing;
+    uint32_t recording_time;
+    uint8_t battery_level;
+    uint8_t storage_percent;
+    patient_info_t patient;
+} endoscope_status_t;
 
 /**********************
  * GLOBAL FUNCTIONS

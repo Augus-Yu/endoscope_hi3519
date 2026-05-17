@@ -13,7 +13,6 @@
 #include "font_manager.h"
 #include "endoscope_dialogs.h"
 #include "ui_helpers.h"
-#include "display_config.h"
 #include "hi3519_port/mpp_record.h"
 #include "hi3519_port/mpp_video.h"
 #include "hi3519_port/lv_port_disp.h"

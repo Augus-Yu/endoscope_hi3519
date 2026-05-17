@@ -476,6 +476,10 @@ static void create_patient_dialog(void)
     lv_obj_add_event_cb(patient_kb_en, patient_kb_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_set_style_text_font(patient_kb_en, &lv_font_montserrat_16, 0);
 
+    /* 替换为 20924 汉字大词库 */
+    extern const lv_pinyin_dict_t lv_ime_pinyin_large_dict[];
+    lv_ime_pinyin_set_dict(patient_ime, (lv_pinyin_dict_t *)lv_ime_pinyin_large_dict);
+
     patient_kb_cn = lv_keyboard_create(patient_overlay);
     lv_obj_set_size(patient_kb_cn, LV_HOR_RES, 280);
     lv_obj_align(patient_kb_cn, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -486,6 +490,11 @@ static void create_patient_dialog(void)
     lv_obj_set_style_text_font(patient_kb_cn, &lv_font_montserrat_16, 0);
 
     patient_cand_panel = lv_ime_pinyin_get_cand_panel(patient_ime);
+    lv_font_t *cand_font = font_manager_get_font();
+    if (cand_font) {
+        lv_obj_set_style_text_font(patient_cand_panel, cand_font, LV_PART_MAIN);
+        lv_obj_set_style_text_font(patient_cand_panel, cand_font, LV_PART_ITEMS);
+    }
     lv_obj_set_size(patient_cand_panel, LV_HOR_RES, 48);
     lv_obj_align_to(patient_cand_panel, patient_kb_cn, LV_ALIGN_OUT_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(patient_cand_panel, UI_COLOR_SURFACE, 0);
@@ -610,7 +619,7 @@ patient_info_t * endoscope_get_patient_info(void)
 #include <sys/ioctl.h>
 #include <linux/fb.h>
 #include "src/libs/lodepng/lodepng.h"
-#include "display_config.h"
+
 #include "hi3519_port/lv_port_disp.h"
 
 int endoscope_ui_snapshot_save(const char * path)

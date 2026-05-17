@@ -523,6 +523,10 @@ void endoscope_dialogs_password_change(endoscope_dialog_password_cb_t callback)
     pwd_ime = lv_ime_pinyin_create(dialog_overlay);
     lv_obj_set_style_text_font(pwd_ime, font_manager_get_font(), 0);
 
+    /* 替换为 20924 汉字大词库 */
+    extern const lv_pinyin_dict_t lv_ime_pinyin_large_dict[];
+    lv_ime_pinyin_set_dict(pwd_ime, (lv_pinyin_dict_t *)lv_ime_pinyin_large_dict);
+
     pwd_kb_en = lv_keyboard_create(dialog_overlay);
     lv_obj_set_size(pwd_kb_en, LV_HOR_RES, 280);
     lv_obj_align(pwd_kb_en, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -539,6 +543,11 @@ void endoscope_dialogs_password_change(endoscope_dialog_password_cb_t callback)
     lv_ime_pinyin_set_keyboard(pwd_ime, pwd_kb_cn);
 
     pwd_cand_panel = lv_ime_pinyin_get_cand_panel(pwd_ime);
+    lv_font_t *cand_font = font_manager_get_font();
+    if (cand_font) {
+        lv_obj_set_style_text_font(pwd_cand_panel, cand_font, LV_PART_MAIN);
+        lv_obj_set_style_text_font(pwd_cand_panel, cand_font, LV_PART_ITEMS);
+    }
     lv_obj_set_size(pwd_cand_panel, LV_HOR_RES, 48);
     lv_obj_align_to(pwd_cand_panel, pwd_kb_cn, LV_ALIGN_OUT_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(pwd_cand_panel, UI_COLOR_SURFACE, 0);

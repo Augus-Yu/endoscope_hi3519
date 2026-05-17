@@ -375,7 +375,7 @@
 #define LV_USE_FREETYPE 0
 #define LV_USE_TINY_TTF 1
 #if LV_USE_TINY_TTF
-    #define LV_TINY_TTF_CACHE_GLYPH_CNT 256
+    #define LV_TINY_TTF_CACHE_GLYPH_CNT 2048
 #endif
 #define LV_USE_RLOTTIE 0
 #define LV_USE_VECTOR_GRAPHIC  0
@@ -399,6 +399,7 @@
 #define LV_USE_IMGFONT 0
 #define LV_USE_OBSERVER 1
 #define LV_USE_IME_PINYIN 1
+#define LV_IME_PINYIN_USE_DEFAULT_DICT 0  /* 禁用内置323条小词库, 应用层替换大词库 */
 #define LV_USE_FILE_EXPLORER 0
 #define LV_USE_FONT_MANAGER 0
 #define LV_USE_TEST 0

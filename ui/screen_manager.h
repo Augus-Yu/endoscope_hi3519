@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#include "ui_types.h"
+#include "endoscope_ui.h"
 
 typedef void (*screen_init_fn_t)(void);
 typedef void (*screen_show_fn_t)(void);
