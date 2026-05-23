@@ -17,6 +17,7 @@
 #include "ui_helpers.h"
 #include "hi3519_port/mpp_record.h"
 #include "hi3519_port/mpp_video.h"
+#include "hi3519_port/mpp_fpn.h"
 #include "hi3519_port/lv_port_disp.h"
 #include "sample_comm.h"
 #include <sys/stat.h>
@@ -105,10 +106,52 @@ void endoscope_main_init(void)
 /* 外部声明：显示驱动中的视频透明区域控制标志 */
 extern volatile int g_video_trans_enable;
 
+static void fpn_retry_cb(lv_event_t * e)
+{
+    lv_obj_t * btn = lv_event_get_target_obj(e);
+    const char * txt = lv_label_get_text(lv_obj_get_child(btn, 0));
+    lv_obj_t * mbox = lv_event_get_current_target_obj(e);
+
+    video_context_t *vc = video_get_context();
+    if (vc && strstr(txt, "重试")) {
+        printf("[FPN-UI] retry...\n");
+        fpn_status_t ret = mpp_fpn_retry(vc->vi_pipe);
+        if (ret == FPN_STATUS_OK) {
+            endoscope_show_dialog("FPN", "校准成功!", _TR("DLG_BTN_OK"));
+            lv_msgbox_close(mbox);
+        } else {
+            endoscope_show_dialog("FPN", "仍不合格,请确保镜体已遮光", _TR("DLG_BTN_OK"));
+        }
+    } else {
+        printf("[FPN-UI] skip FPN\n");
+        lv_msgbox_close(mbox);
+    }
+}
+
+static void fpn_retry_check(void)
+{
+    if (mpp_fpn_get_status() != FPN_STATUS_NEED_RETRY) return;
+
+    lv_obj_t * mbox = lv_msgbox_create(NULL);
+    lv_msgbox_add_title(mbox, "FPN 校准");
+    lv_msgbox_add_text(mbox, "遮光后点重试,或点跳过");
+    lv_msgbox_add_close_button(mbox);
+    lv_obj_t * skip_btn = lv_msgbox_add_footer_button(mbox, "跳过");
+    lv_obj_t * retry_btn = lv_msgbox_add_footer_button(mbox, "重试");
+
+    lv_obj_add_event_cb(skip_btn,  fpn_retry_cb, LV_EVENT_CLICKED, mbox);
+    lv_obj_add_event_cb(retry_btn, fpn_retry_cb, LV_EVENT_CLICKED, mbox);
+
+    printf("[FPN-UI] showing retry dialog\n");
+}
+
 void endoscope_main_show(void)
 {
     g_video_trans_enable = 1;
     lv_scr_load(main_screen);
+
+    /* 主界面加载后检查 FPN 是否需要手动重试 */
+    fpn_retry_check();
 }
 
 void endoscope_main_hide(void)

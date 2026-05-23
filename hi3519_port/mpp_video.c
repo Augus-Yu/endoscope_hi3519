@@ -16,6 +16,7 @@
 #include <linux/fb.h>
 
 #include "mpp_video.h"
+#include "mpp_fpn.h"
 #include "hifb.h"
 
 /*********************
@@ -159,6 +160,16 @@ HI_S32 video_init(video_context_t *ctx)
         printf("VI init failed!\n");
         ctx->state = VIDEO_STATE_ERROR;
         return s32Ret;
+    }
+
+    /* FPN 自动校准 (开机暗帧采集) */
+    {
+        fpn_status_t fpn_ret = mpp_fpn_calibrate(ctx->vi_pipe);
+        if (fpn_ret == FPN_STATUS_OK) {
+            printf("FPN calibration OK\n");
+        } else if (fpn_ret == FPN_STATUS_NEED_RETRY) {
+            printf("FPN needs manual retry (sensor not dark)\n");
+        }
     }
 
     s32Ret = vpss_init(ctx);
