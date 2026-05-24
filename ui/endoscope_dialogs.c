@@ -3,6 +3,7 @@
  * @brief 提示弹窗实现
  */
 
+#include <stdio.h>
 #include <string.h>
 #include "endoscope_dialogs.h"
 #include "endoscope_ui.h"
@@ -157,9 +158,11 @@ void endoscope_dialogs_confirm(const char *title, const char *msg,
                                const char *yes_text, const char *no_text,
                                endoscope_dialog_confirm_cb_t callback)
 {
+    printf("[DIALOG] dialogs_confirm: title=%s, cb=%p\n", title, (void*)callback);
     confirm_callback = callback;
 
     if(dialog_overlay) {
+        printf("[DIALOG] hiding previous dialog\n");
         endoscope_dialogs_hide();
     }
     g_dialog_showing = 1;
@@ -355,12 +358,16 @@ static void close_btn_event(lv_event_t * e)
 static void confirm_btn_event(lv_event_t * e)
 {
     bool confirmed = (bool)(intptr_t)lv_event_get_user_data(e);
+    printf("[DIALOG] confirm_btn_event: confirmed=%d, cb=%p\n",
+           confirmed, (void*)confirm_callback);
 
+    endoscope_dialog_confirm_cb_t cb = confirm_callback;
+    confirm_callback = NULL;
     endoscope_dialogs_hide();
 
-    if(confirm_callback) {
-        confirm_callback(confirmed);
-        confirm_callback = NULL;
+    if(cb) {
+        printf("[DIALOG] calling confirm_callback...\n");
+        cb(confirmed);
     }
 }
 

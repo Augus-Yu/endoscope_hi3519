@@ -172,13 +172,9 @@ int main(int argc, char **argv)
     playback_stop();
 
     if (g_video_started) {
-        printf("[*] Stopping video...\n");
-        mpp_video_deinit();
-        g_video_started = 0;
+        printf("[*] Ctrl-C exit, MPP pipeline stays running\n");
     }
-
-    /* 关闭 HDMI, 避免下次启动报 already opened */
-    SAMPLE_COMM_VO_HdmiStop();
+    /* Ctrl-C 不关任何硬件: HDMI/VI/VPSS/VO/fb0 全保留 */
 
     printf("[*] Stopping recorder...\n");
     record_deinit();

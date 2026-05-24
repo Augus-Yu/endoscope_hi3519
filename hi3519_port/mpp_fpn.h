@@ -23,7 +23,13 @@ fpn_status_t mpp_fpn_calibrate(VI_PIPE vi_pipe);
 /* 获取当前FPN状态 */
 fpn_status_t mpp_fpn_get_status(void);
 
+/* 开机加载已有FPN文件并启用校正 */
+fpn_status_t mpp_fpn_load(VI_PIPE vi_pipe);
+
 /* 手动重试FPN校准 (用户在对话框中确认遮光后调用) */
 fpn_status_t mpp_fpn_retry(VI_PIPE vi_pipe);
+
+/* 测试黑帧: 关LED+传感器曝光+ISP最小曝光, 不恢复 */
+void mpp_fpn_test_dark_frame(VI_PIPE vi_pipe);
 
 #endif /* MPP_FPN_H */

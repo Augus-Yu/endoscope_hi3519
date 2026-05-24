@@ -290,7 +290,7 @@ int playback_start(const char *filepath)
         g.enDynamicRange = DYNAMIC_RANGE_SDR8;
         g.enPixelFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
         g.u32MaxW = pb_w; g.u32MaxH = pb_h;
-        g.bNrEn = HI_TRUE;
+        g.bNrEn = HI_FALSE; /* 3DNR关闭 */
         g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
         g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 

@@ -95,6 +95,17 @@ HI_S32 mpp_system_init(HI_VOID)
     stVbConf.astCommPool[2].u64BlkSize = u32BlkSize;
     stVbConf.astCommPool[2].u32BlkCnt = sensor->vb_zoom_blk_cnt;
 
+    /* 先检查 MPP 是否已在运行, 是则跳过 Init (避免报错) */
+    {
+        VB_CONFIG_S tmp;
+        if (HI_SUCCESS == HI_MPI_VB_GetConfig(&tmp)) {
+            printf("MPP already running, reuse session\n");
+            s_mpp_was_running = HI_TRUE;
+            s_mpp_init_called = HI_TRUE;
+            return HI_SUCCESS;
+        }
+    }
+
     s32Ret = SAMPLE_COMM_SYS_InitWithVbSupplement(&stVbConf, VB_SUPPLEMENT_JPEG_MASK);
     if (HI_SUCCESS != s32Ret) {
         printf("MPP system init returned 0x%x, assuming already initialized\n", s32Ret);
@@ -147,11 +158,10 @@ HI_S32 video_init(video_context_t *ctx)
         printf("MPP system init returned 0x%x, assuming already initialized\n", s32Ret);
     }
 
-    /* If MPP was already running, skip VI/VPSS/VO init and assume
-       everything is in the state from the previous session. */
+    /* Ctrl-C 退出时管线完全保留在后台, 直接复用 */
     if (s_mpp_was_running) {
         ctx->state = VIDEO_STATE_INIT;
-        printf("Video already initialized from previous session\n");
+        printf("Pipeline reused from previous session\n");
         return HI_SUCCESS;
     }
 
@@ -162,14 +172,11 @@ HI_S32 video_init(video_context_t *ctx)
         return s32Ret;
     }
 
-    /* FPN 自动校准 (开机暗帧采集) */
+    /* 开机自动FPN: 有文件加载, 无则自动校准 */
     {
-        fpn_status_t fpn_ret = mpp_fpn_calibrate(ctx->vi_pipe);
-        if (fpn_ret == FPN_STATUS_OK) {
-            printf("FPN calibration OK\n");
-        } else if (fpn_ret == FPN_STATUS_NEED_RETRY) {
-            printf("FPN needs manual retry (sensor not dark)\n");
-        }
+        fpn_status_t fpn_ret = mpp_fpn_load(ctx->vi_pipe);
+        if (fpn_ret == FPN_STATUS_OK)
+            printf("FPN correction loaded\n");
     }
 
     s32Ret = vpss_init(ctx);
@@ -230,28 +237,18 @@ HI_VOID video_stop(video_context_t *ctx)
 
 HI_VOID video_deinit(video_context_t *ctx)
 {
-    if (ctx == NULL) {
-        return;
-    }
+    if (ctx == NULL) return;
 
     video_stop(ctx);
-    unbind_modules(ctx);
 
-    /* Disable VO channel to clear the last video frame from screen.
-       Only the channel is disabled; the VO layer and device stay
-       enabled so that /dev/fb0 (HIFB G0) remains accessible. */
+    /* 只关通道, 不销毁组/解绑.
+       VO 设备不关 (保 fb0), MPP 系统不退 (保 VB 池). */
+    HI_MPI_VI_DisableChn(ctx->vi_pipe, ctx->vi_chn);
+    HI_MPI_VPSS_DisableChn(ctx->vpss_grp, ctx->vpss_chn);
     HI_MPI_VO_DisableChn(ctx->vo_dev, ctx->vo_chn);
 
-    vpss_deinit(ctx);
-    vi_deinit(ctx);
-    /* Do NOT disable VO or exit MPP system.
-       Hi3519 HIFB (/dev/fb0) is tightly coupled to the VO pipeline.
-       Once HI_MPI_VO_Disable() is called, fb0 becomes permanently
-       locked (EPERM) until the next system reboot.
-       Keeping VO alive allows the UI to restart immediately. */
-
     ctx->state = VIDEO_STATE_IDLE;
-    printf("Video deinitialized (VO/MPP kept alive for HIFB)\n");
+    printf("Video deinitialized (channels disabled, pipeline preserved)\n");
 }
 
 video_state_t video_get_state(video_context_t *ctx)
@@ -375,7 +372,7 @@ HI_S32 video_set_zoom(HI_S32 x, HI_S32 y, HI_S32 width, HI_S32 height)
         g.enPixelFormat = PIXEL_FORMAT;
         g.u32MaxW = ((HI_U32)width  > ctx->sensor->width)  ? (HI_U32)width  : ctx->sensor->width;
         g.u32MaxH = ((HI_U32)height > ctx->sensor->height) ? (HI_U32)height : ctx->sensor->height;
-        g.bNrEn = HI_TRUE;
+        g.bNrEn = HI_FALSE; /* 3DNR关闭 */
         g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
         g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 
@@ -518,7 +515,7 @@ static HI_S32 vpss_init(video_context_t *ctx)
     stVpssGrpAttr.enPixelFormat = enPixFormat;
     stVpssGrpAttr.u32MaxW = ctx->sensor->width;
     stVpssGrpAttr.u32MaxH = ctx->sensor->height;
-    stVpssGrpAttr.bNrEn = HI_TRUE;
+    stVpssGrpAttr.bNrEn = HI_FALSE; /* 3DNR关闭 */
     stVpssGrpAttr.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
     stVpssGrpAttr.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 
@@ -611,17 +608,16 @@ static HI_S32 bind_modules(video_context_t *ctx)
 
 static HI_VOID vi_deinit(video_context_t *ctx)
 {
-    SAMPLE_COMM_VI_StopVi(&ctx->vi_config);
-    printf("VI deinitialized\n");
+    /* 只停通道, 不销毁管线 (保 fb0 不死) */
+    HI_MPI_VI_DisableChn(ctx->vi_pipe, ctx->vi_chn);
+    printf("VI channel disabled\n");
 }
 
 static HI_VOID vpss_deinit(video_context_t *ctx)
 {
-    HI_BOOL abChnEnable[VPSS_MAX_PHY_CHN_NUM] = {0};
-    abChnEnable[ctx->vpss_chn] = HI_TRUE;
-
-    SAMPLE_COMM_VPSS_Stop(ctx->vpss_grp, abChnEnable);
-    printf("VPSS deinitialized\n");
+    /* 只停通道, 不销毁组 (重启时可直接启用) */
+    HI_MPI_VPSS_DisableChn(ctx->vpss_grp, ctx->vpss_chn);
+    printf("VPSS channel disabled\n");
 }
 
 static HI_VOID unbind_modules(video_context_t *ctx)

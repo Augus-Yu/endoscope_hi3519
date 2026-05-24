@@ -106,6 +106,7 @@ void endoscope_main_init(void)
 /* 外部声明：显示驱动中的视频透明区域控制标志 */
 extern volatile int g_video_trans_enable;
 
+#if 0 /* FPN 功能待设置页按钮触发, 暂不启用 */
 static void fpn_retry_cb(lv_event_t * e)
 {
     lv_obj_t * btn = lv_event_get_target_obj(e);
@@ -144,14 +145,12 @@ static void fpn_retry_check(void)
 
     printf("[FPN-UI] showing retry dialog\n");
 }
+#endif /* FPN */
 
 void endoscope_main_show(void)
 {
     g_video_trans_enable = 1;
     lv_scr_load(main_screen);
-
-    /* 主界面加载后检查 FPN 是否需要手动重试 */
-    fpn_retry_check();
 }
 
 void endoscope_main_hide(void)
