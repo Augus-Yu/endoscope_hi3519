@@ -76,7 +76,9 @@ static int build_image_list(const char *first_path)
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (e->d_type != DT_REG && e->d_type != DT_UNKNOWN) continue;
-        if (is_jpg_ext(e->d_name)) n++;
+        if (!is_jpg_ext(e->d_name)) continue;
+        if (strstr(e->d_name, "_thm.")) continue;
+        n++;
     }
     if (n == 0) { closedir(d); return -1; }
     g_image_files = calloc(n, sizeof(char *));
@@ -85,8 +87,9 @@ static int build_image_list(const char *first_path)
     int idx = 0;
     while ((e = readdir(d)) != NULL && idx < n) {
         if (e->d_type != DT_REG && e->d_type != DT_UNKNOWN) continue;
-        if (is_jpg_ext(e->d_name))
-            g_image_files[idx++] = strdup(e->d_name);
+        if (!is_jpg_ext(e->d_name)) continue;
+        if (strstr(e->d_name, "_thm.")) continue;
+        g_image_files[idx++] = strdup(e->d_name);
     }
     g_image_count = idx;
     closedir(d);
