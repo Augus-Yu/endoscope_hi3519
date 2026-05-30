@@ -55,8 +55,10 @@ static const translation_entry_t en_translations[] = {
     {"BTN_SETTINGS", "Settings"},
     {"BTN_BALANCE", "Balance"},
     {"BTN_FREEZE", "Freeze"},
+    {"BTN_FREEZE_ACTIVE", "Frozen"},
     {"BTN_CAPTURE", "Capture"},
     {"BTN_RECORD", "Record"},
+    {"BTN_RECORD_ACTIVE", "Recording"},
     {"BTN_ZOOM", "Zoom"},
     {"BTN_PLAYBACK", "Playback"},
     
@@ -193,8 +195,10 @@ static const translation_entry_t zh_translations[] = {
     {"BTN_SETTINGS", "设置"},
     {"BTN_BALANCE", "白平衡"},
     {"BTN_FREEZE", "冻结"},
+    {"BTN_FREEZE_ACTIVE", "已冻结"},
     {"BTN_CAPTURE", "拍照"},
     {"BTN_RECORD", "录像"},
+    {"BTN_RECORD_ACTIVE", "录像中"},
     {"BTN_ZOOM", "电子放大"},
     {"BTN_PLAYBACK", "回放"},
     

@@ -17,18 +17,11 @@ extern volatile int g_video_trans_enable;
 #define RECORD_DIR    "./endoscope/record"
 #define SNAPSHOT_DIR "./endoscope/snapshot"
 
-/* ── 网格卡片尺寸 ── */
-#define CARD_W      430
-#define CARD_H      320
-#define THUMB_H     250
-#define LABEL_H     50
-#define CARD_GAP    20
-
-/* ── 延迟缩略图加载 ── */
-#define MAX_DEFER 128
-static struct { lv_obj_t *img; char path[512]; } defer_q[MAX_DEFER];
-static int defer_count = 0;
-static lv_timer_t * defer_timer = NULL;
+#define CARD_W      300
+#define CARD_H      230
+#define THUMB_H     170
+#define LABEL_H     40
+#define CARD_GAP    16
 
 static lv_obj_t * playback_screen = NULL;
 static lv_obj_t * grid_container = NULL;
@@ -38,10 +31,7 @@ static void back_btn_event(lv_event_t * e);
 static void refresh_btn_event(lv_event_t * e);
 static void file_click_event(lv_event_t * e);
 static void refresh_list(void);
-static void defer_load_next(lv_timer_t * tmr);
-static void defer_thumbnail(lv_obj_t * img, const char *fullpath);
 
-/* ── 文件名截断 ── */
 static void set_truncated_text(lv_obj_t * label, const char *text, size_t max_chars)
 {
     size_t len = strlen(text);
@@ -61,7 +51,7 @@ void endoscope_playback_init(void)
     lv_obj_set_style_bg_color(playback_screen, UI_COLOR_BG, 0);
     lv_obj_set_style_pad_all(playback_screen, 0, 0);
 
-    /* ── 顶部标题栏 ── */
+    /* 顶部标题栏 */
     lv_obj_t * header = lv_obj_create(playback_screen);
     lv_obj_set_size(header, LV_PCT(100), 60);
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
@@ -93,28 +83,18 @@ void endoscope_playback_init(void)
     UI_SET_FONT(refresh_lbl);
     lv_obj_center(refresh_lbl);
 
-    /* ── 滚动容器 ── */
-    lv_obj_t * scroll = lv_obj_create(playback_screen);
-    lv_obj_set_size(scroll, LV_PCT(100), LV_VER_RES - 60);
-    lv_obj_align(scroll, LV_ALIGN_TOP_MID, 0, 60);
-    lv_obj_set_style_bg_color(scroll, UI_COLOR_BG, 0);
-    lv_obj_set_style_border_width(scroll, 0, 0);
-    lv_obj_set_style_pad_all(scroll, CARD_GAP, 0);
-    lv_obj_set_scrollbar_mode(scroll, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
-
-    /* ── 网格容器 ── */
-    grid_container = lv_obj_create(scroll);
-    lv_obj_set_size(grid_container, LV_PCT(100), LV_SIZE_CONTENT);
+    /* 可滚动网格容器 */
+    grid_container = lv_obj_create(playback_screen);
+    lv_obj_set_size(grid_container, LV_PCT(100), LV_VER_RES - 60);
+    lv_obj_align(grid_container, LV_ALIGN_TOP_MID, 0, 60);
     lv_obj_set_style_bg_color(grid_container, UI_COLOR_BG, 0);
     lv_obj_set_style_border_width(grid_container, 0, 0);
-    lv_obj_set_style_pad_all(grid_container, 0, 0);
+    lv_obj_set_style_pad_all(grid_container, CARD_GAP, 0);
     lv_obj_set_flex_flow(grid_container, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(grid_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(grid_container, CARD_GAP, 0);
     lv_obj_set_style_pad_column(grid_container, CARD_GAP, 0);
 
-    /* ── 底部状态 ── */
     status_label = lv_label_create(playback_screen);
     lv_label_set_text(status_label, "");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0xFF4444), 0);
@@ -132,7 +112,6 @@ void endoscope_playback_hide(void)
 {
 }
 
-/* ── 文件类型检测 ── */
 static int is_image_ext(const char *name, size_t len)
 {
     return (len > 4 && strcasecmp(name + len - 4, ".jpg") == 0);
@@ -144,7 +123,7 @@ static int is_video_ext(const char *name, size_t len)
             (len > 4 && strcmp(name + len - 4, ".264") == 0));
 }
 
-/* ── 创建一张卡片 ── */
+/* 卡片: 纯图标占位，不加载 JPEG，保证滚动流畅 */
 static lv_obj_t * create_card(lv_obj_t * parent, const char *fullpath,
                                const char *fname, int is_img)
 {
@@ -158,7 +137,7 @@ static lv_obj_t * create_card(lv_obj_t * parent, const char *fullpath,
     lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), 0);
     lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
 
-    /* ── 缩略图区域 (不可点击, 点击穿透到卡片) ── */
+    /* 缩略图区域 (不可点击) */
     lv_obj_t * thumb = lv_obj_create(card);
     lv_obj_set_size(thumb, CARD_W - 16, THUMB_H);
     lv_obj_align(thumb, LV_ALIGN_TOP_MID, 0, 4);
@@ -169,60 +148,55 @@ static lv_obj_t * create_card(lv_obj_t * parent, const char *fullpath,
     lv_obj_clear_flag(thumb, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(thumb, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* 缩略图: 有 BMP 则用 BMP (瞬时), 否则图标占位 */
+    int has_thumb = 0;
     if (is_img) {
-        /* 占位图标 (不可点击) */
-        lv_obj_t * holder = lv_obj_create(thumb);
-        lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_size(holder, 80, 80);
-        lv_obj_center(holder);
-        lv_obj_set_style_bg_color(holder, lv_color_hex(0x1a4728), 0);
-        lv_obj_set_style_radius(holder, 10, 0);
-        lv_obj_set_style_border_width(holder, 0, 0);
-
-        lv_obj_t * ph_icon = lv_label_create(holder);
-        lv_label_set_text(ph_icon, LV_SYMBOL_IMAGE);
-        lv_obj_set_style_text_font(ph_icon, &lv_font_montserrat_36, 0);
-        lv_obj_set_style_text_color(ph_icon, lv_color_hex(0x44CC66), 0);
-        lv_obj_center(ph_icon);
-
-        /* JPEG 缩略图 (不可点击, 延迟加载) */
-        lv_obj_t * img = lv_image_create(thumb);
-        lv_obj_set_size(img, LV_PCT(100), LV_PCT(100));
-        lv_obj_center(img);
-        lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CENTER);
-        lv_image_set_antialias(img, false);
-        defer_thumbnail(img, fullpath);
-    } else {
-        /* 视频占位卡片 (不可点击) */
+        /* 检测同目录下 _thm.jpg 缩略图 */
+        char thm_path[520];
+        snprintf(thm_path, sizeof(thm_path), "%s", fullpath);
+        char *dot = strrchr(thm_path, '.');
+        if (dot) { strcpy(dot, "_thm.jpg"); }
+        FILE *fp = fopen(thm_path, "rb");
+        if (fp) {
+            fclose(fp);
+            lv_obj_t * img = lv_image_create(thumb);
+            lv_obj_set_size(img, LV_PCT(100), LV_PCT(100));
+            lv_obj_center(img);
+            lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CENTER);
+            lv_image_set_src(img, thm_path);
+            has_thumb = 1;
+        }
+    }
+    if (!has_thumb) {
         lv_obj_t * badge = lv_obj_create(thumb);
         lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_size(badge, 80, 80);
         lv_obj_center(badge);
-        lv_obj_set_style_bg_color(badge, lv_color_hex(0x1a2744), 0);
+        lv_obj_set_style_bg_color(badge, is_img ? lv_color_hex(0x1a4728) : lv_color_hex(0x1a2744), 0);
         lv_obj_set_style_radius(badge, 10, 0);
         lv_obj_set_style_border_width(badge, 0, 0);
 
         lv_obj_t * icon = lv_label_create(badge);
-        lv_label_set_text(icon, LV_SYMBOL_VIDEO);
+        lv_label_set_text(icon, is_img ? LV_SYMBOL_IMAGE : LV_SYMBOL_VIDEO);
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_36, 0);
-        lv_obj_set_style_text_color(icon, lv_color_hex(0x4488CC), 0);
+        lv_obj_set_style_text_color(icon, is_img ? lv_color_hex(0x44CC66) : lv_color_hex(0x4488CC), 0);
         lv_obj_center(icon);
     }
 
-    /* ── 类型标记: [视] / [图] ── */
+    /* 类型标签 */
     lv_obj_t * tag = lv_label_create(thumb);
     const char *tag_text = is_img ? _TR("PLAYBACK_IMG_PREFIX") : _TR("PLAYBACK_VID_PREFIX");
     lv_label_set_text(tag, tag_text);
     lv_obj_set_style_text_color(tag, lv_color_white(), 0);
     lv_obj_set_style_bg_color(tag, is_img ? lv_color_hex(0x228833) : lv_color_hex(0x225588), 0);
     lv_obj_set_style_bg_opa(tag, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_hor(tag, 8, 0);
-    lv_obj_set_style_pad_ver(tag, 4, 0);
-    lv_obj_set_style_radius(tag, 6, 0);
+    lv_obj_set_style_pad_hor(tag, 6, 0);
+    lv_obj_set_style_pad_ver(tag, 3, 0);
+    lv_obj_set_style_radius(tag, 4, 0);
     lv_obj_set_style_text_font(tag, font_manager_get_font(), 0);
     lv_obj_align(tag, LV_ALIGN_TOP_LEFT, 6, 6);
 
-    /* ── 文件名 (不可点击) ── */
+    /* 文件名 */
     lv_obj_t * label = lv_label_create(card);
     lv_obj_set_size(label, CARD_W - 16, LABEL_H);
     lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -2);
@@ -231,7 +205,7 @@ static lv_obj_t * create_card(lv_obj_t * parent, const char *fullpath,
     UI_SET_FONT(label);
     set_truncated_text(label, fname, 30);
 
-    /* ── 点击事件: 挂在卡片上, 子控件已清除 CLICKABLE ── */
+    /* 点击事件: 只挂在卡片上 */
     char *path_dup = strdup(fullpath);
     lv_obj_add_event_cb(card, file_click_event, LV_EVENT_CLICKED, path_dup);
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
@@ -239,19 +213,17 @@ static lv_obj_t * create_card(lv_obj_t * parent, const char *fullpath,
     return card;
 }
 
-/* ── 扫描目录 ── */
 static void scan_dir(const char *dirpath, lv_obj_t *parent, int *count)
 {
     DIR *dir = opendir(dirpath);
     if (!dir) return;
-
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         size_t len = strlen(entry->d_name);
         int is_img = is_image_ext(entry->d_name, len);
         int is_vid = is_video_ext(entry->d_name, len);
         if (!is_img && !is_vid) continue;
-
+        if (strstr(entry->d_name, "_thm.")) continue;
         char fullpath[512];
         snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
         create_card(parent, fullpath, entry->d_name, is_img);
@@ -260,46 +232,12 @@ static void scan_dir(const char *dirpath, lv_obj_t *parent, int *count)
     closedir(dir);
 }
 
-/* ── 批量加载缩略图, 每 10ms 加载 4 张 ── */
-static void defer_load_next(lv_timer_t * tmr)
-{
-    (void)tmr;
-    int batch = 4;
-    for (int i = 0; i < batch && defer_count > 0; i++) {
-        lv_image_set_src(defer_q[0].img, defer_q[0].path);
-        memmove(&defer_q[0], &defer_q[1], (size_t)(defer_count - 1) * sizeof(defer_q[0]));
-        defer_count--;
-    }
-    if (defer_count == 0) {
-        if (defer_timer) { lv_timer_del(defer_timer); defer_timer = NULL; }
-    }
-}
-
-/* ── 入队: 先显示占位, 稍后在 timer 中加载真实 JPEG ── */
-static void defer_thumbnail(lv_obj_t * img, const char *fullpath)
-{
-    if (defer_count >= MAX_DEFER) return;
-    defer_q[defer_count].img = img;
-    strncpy(defer_q[defer_count].path, fullpath, sizeof(defer_q[0].path) - 1);
-    defer_count++;
-    if (!defer_timer) {
-        defer_timer = lv_timer_create(defer_load_next, 10, NULL);
-    }
-}
-
-/* ── 刷新列表 ── */
 static void refresh_list(void)
 {
-    /* 取消旧的延迟加载 */
-    if (defer_timer) { lv_timer_del(defer_timer); defer_timer = NULL; }
-    defer_count = 0;
-
     if (grid_container) lv_obj_clean(grid_container);
-
     int count = 0;
     scan_dir(RECORD_DIR, grid_container, &count);
     scan_dir(SNAPSHOT_DIR, grid_container, &count);
-
     if (count == 0 && grid_container) {
         lv_obj_t *lbl = lv_label_create(grid_container);
         lv_label_set_text(lbl, _TR("PLAYBACK_NO_FILES"));
@@ -310,7 +248,6 @@ static void refresh_list(void)
     }
 }
 
-/* ── 事件 ── */
 static void back_btn_event(lv_event_t * e)
 {
     (void)e;
@@ -327,18 +264,14 @@ static void file_click_event(lv_event_t * e)
 {
     const char *path = lv_event_get_user_data(e);
     if (!path) return;
-
     size_t len = strlen(path);
-
     if (is_image_ext(path, len)) {
         endoscope_player_show_image(path);
         screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
         return;
     }
-
     if (playback_is_running())
         playback_stop();
-
     if (playback_start(path) == 0) {
         screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
     } else {

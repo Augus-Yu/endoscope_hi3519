@@ -191,7 +191,7 @@ int snapshot_save(const char *filename)
 
     SIZE_S stSize = { .u32Width  = video_get_context()->sensor->width,
                       .u32Height = video_get_context()->sensor->height };
-    if (SAMPLE_COMM_VENC_SnapStart(g_rc.jpeg_chn, &stSize, HI_FALSE) != HI_SUCCESS) {
+    if (SAMPLE_COMM_VENC_SnapStart(g_rc.jpeg_chn, &stSize, HI_TRUE) != HI_SUCCESS) {
         printf("[Record] JPEG SnapStart failed\n");
         return -1;
     }
@@ -251,6 +251,14 @@ int snapshot_save(const char *filename)
     printf("[Record] Snapshot saved: %s\n", fullpath);
     HI_MPI_VENC_StopRecvFrame(g_rc.jpeg_chn);
     result = 0;
+    {
+        extern HI_S32 SAMPLE_COMM_VENC_Getdcfinfo(char*, char*);
+        char thm_path[520];
+        snprintf(thm_path, sizeof(thm_path), "%s", fullpath);
+        char *dot2 = strrchr(thm_path, '.');
+        if (dot2) strcpy(dot2, "_thm.jpg");
+        SAMPLE_COMM_VENC_Getdcfinfo(fullpath, thm_path);
+    }
     goto cleanup_jpeg_done;
 
 cleanup_jpeg:

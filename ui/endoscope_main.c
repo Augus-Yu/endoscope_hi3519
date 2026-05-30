@@ -42,6 +42,10 @@
 static lv_obj_t * main_screen = NULL;
 static lv_obj_t * video_area = NULL;
 static lv_obj_t * record_btn = NULL;
+static lv_obj_t * freeze_icon = NULL;
+static lv_obj_t * record_icon = NULL;
+static lv_obj_t * freeze_label = NULL;
+static lv_obj_t * record_label = NULL;
 static lv_obj_t * record_status_label = NULL;
 static lv_obj_t * time_label = NULL;
 static lv_timer_t * record_timer = NULL;
@@ -356,48 +360,66 @@ static void create_right_panel(lv_obj_t * parent)
         "BTN_CAPTURE", "BTN_RECORD",
         "BTN_ZOOM", "BTN_PLAYBACK"
     };
-    const char * btn_icons[8] = {
-        LV_SYMBOL_USB, LV_SYMBOL_SETTINGS,
-        LV_SYMBOL_REFRESH, LV_SYMBOL_PAUSE,
-        LV_SYMBOL_SAVE, LV_SYMBOL_VIDEO,
-        LV_SYMBOL_PLUS, LV_SYMBOL_PLAY
+    /* 自定义图标路径 (有PNG用lv_image, 无则LV_SYMBOL兜底) */
+    const char * img_paths[8] = {
+        NULL, "./image/scene.bmp",
+        "./image/wb.bmp", "./image/freeze.bmp",
+        "./image/capture.bmp", "./image/record.bmp",
+        "./image/zoom.bmp", NULL
     };
-    
+    const char * fallback_icons[8] = {
+        LV_SYMBOL_USB, LV_SYMBOL_SETTINGS,
+        NULL, NULL,
+        NULL, NULL,
+        NULL, LV_SYMBOL_PLAY
+    };
+
     int btn_ids[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-    
+
     for(int i = 0; i < 8; i++) {
         lv_obj_t * btn = lv_btn_create(panel);
         lv_obj_set_size(btn, BTN_SIZE, BTN_SIZE);
-        
+
         int col = i % 2;
         int row = i / 2;
-        int x = 8 + col * (BTN_SIZE + 8);  /* 水平间距：紧凑 */
-        int y = 10 + row * (BTN_SIZE + 30);  /* 垂直间距：紧凑，为LED调节留空间 */
-        
+        int x = 8 + col * (BTN_SIZE + 8);
+        int y = 10 + row * (BTN_SIZE + 30);
+
         lv_obj_set_pos(btn, x, y);
         lv_obj_set_style_bg_color(btn, MAIN_COLOR_BG, 0);
         lv_obj_set_style_radius(btn, 8, 0);
         lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)btn_ids[i]);
-        
+
         if(i == 5) {
             record_btn = btn;
         }
-        
-        /* 图标 - 使用更大的字体 */
-        lv_obj_t * icon = lv_label_create(btn);
-        lv_label_set_text(icon, btn_icons[i]);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_48, 0);
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 20);  /* 稍微上移以适配更大的图标 */
-        
+
+        /* 图标: 优先自定义PNG, 否则LV_SYMBOL字体 */
+        if (img_paths[i]) {
+            lv_obj_t * img = lv_image_create(btn);
+            lv_obj_set_size(img, 80, 80);
+            lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 16);
+            lv_image_set_src(img, img_paths[i]);
+            if (i == 3) freeze_icon = img;
+            if (i == 5) record_icon = img;
+        } else {
+            lv_obj_t * icon = lv_label_create(btn);
+            lv_label_set_text(icon, fallback_icons[i]);
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_48, 0);
+            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 20);
+        }
+
         /* 文字 */
         lv_obj_t * lbl = lv_label_create(btn);
         lv_label_set_text(lbl, _TR(btn_keys[i]));
+        if (i == 3) freeze_label = lbl;
+        if (i == 5) record_label = lbl;
         UI_SET_FONT(lbl);
         lv_obj_set_style_text_color(lbl, MAIN_COLOR_TEXT, 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(lbl, BTN_SIZE - 20);
-        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -12);  /* -5 * 2.4 */
+        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -12);
     }
     
     /* LED亮度调节 - 放在按钮下方 */
@@ -465,19 +487,20 @@ static void btn_event_cb(lv_event_t * e)
         {
             video_context_t *vc = video_get_context();
             lv_obj_t *btn = lv_event_get_target_obj(e);
-            lv_obj_t *icon = lv_obj_get_child(btn, 0);
             if (!g_frozen) {
                 HI_MPI_VI_DisableChn(vc->vi_pipe, vc->vi_chn);
                 HI_MPI_VO_PauseChn(vc->vo_dev, vc->vo_chn);
                 g_frozen = 1;
                 lv_obj_set_style_bg_color(btn, UI_COLOR_ACCENT, 0);
-                if (icon) lv_label_set_text(icon, LV_SYMBOL_PLAY);
+                if (freeze_icon) lv_image_set_src(freeze_icon, "./image/freeze_active.bmp");
+                if (freeze_label) lv_label_set_text(freeze_label, _TR("BTN_FREEZE_ACTIVE"));
             } else {
                 HI_MPI_VI_EnableChn(vc->vi_pipe, vc->vi_chn);
                 HI_MPI_VO_ResumeChn(vc->vo_dev, vc->vo_chn);
                 g_frozen = 0;
                 lv_obj_set_style_bg_color(btn, MAIN_COLOR_BG, 0);
-                if (icon) lv_label_set_text(icon, LV_SYMBOL_PAUSE);
+                if (freeze_icon) lv_image_set_src(freeze_icon, "./image/freeze.bmp");
+                if (freeze_label) lv_label_set_text(freeze_label, _TR("BTN_FREEZE"));
             }
         }
         break;
@@ -493,7 +516,7 @@ static void btn_event_cb(lv_event_t * e)
                     (HI_U32)vc->sensor->width,
                     (HI_U32)vc->sensor->height
                 };
-                if (SAMPLE_COMM_VENC_SnapStart(snap_chn, &stSize, HI_FALSE) == HI_SUCCESS) {
+                if (SAMPLE_COMM_VENC_SnapStart(snap_chn, &stSize, HI_TRUE) == HI_SUCCESS) {
                     VENC_RECV_PIC_PARAM_S recv = { .s32RecvPicNum = 1 };
                     HI_MPI_VENC_StartRecvFrame(snap_chn, &recv);
                     HI_MPI_VENC_SendFrame(snap_chn, &vo_frame, 0);
@@ -521,6 +544,15 @@ static void btn_event_cb(lv_event_t * e)
                                 fclose(fp);
                                 HI_MPI_VENC_ReleaseStream(snap_chn, &stStream);
                                 ok = 1;
+                                /* 硬件 DCF 缩略图: 从 JPEG 提取 _thm.jpg */
+                                {
+                                    extern HI_S32 SAMPLE_COMM_VENC_Getdcfinfo(char*, char*);
+                                    char thm_path[520];
+                                    snprintf(thm_path, sizeof(thm_path), "%s", fullpath);
+                                    char *dot2 = strrchr(thm_path, '.');
+                                    if (dot2) strcpy(dot2, "_thm.jpg");
+                                    SAMPLE_COMM_VENC_Getdcfinfo(fullpath, thm_path);
+                                }
                             }
                             free(stStream.pstPack);
                         }
@@ -554,6 +586,8 @@ static void btn_event_cb(lv_event_t * e)
                 break;
             }
             lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_RECORD, 0);
+            if (record_icon) lv_image_set_src(record_icon, "./image/recording.bmp");
+            if (record_label) lv_label_set_text(record_label, _TR("BTN_RECORD_ACTIVE"));
             lv_obj_clear_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text(time_label, "00:00:00");
@@ -574,6 +608,8 @@ static void btn_event_cb(lv_event_t * e)
             lv_label_set_text(time_label, "00:00:00");
             record_stop();
             lv_obj_set_style_bg_color(record_btn, MAIN_COLOR_BG, 0);
+            if (record_icon) lv_image_set_src(record_icon, "./image/record.bmp");
+            if (record_label) lv_label_set_text(record_label, _TR("BTN_RECORD"));
             lv_obj_add_flag(record_status_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
         }
