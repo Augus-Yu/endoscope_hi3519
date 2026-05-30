@@ -36,23 +36,23 @@ make -j4
 
 ## 部署到板子
 
-程序运行时需要以下文件在板子上（以 `/mnt/` 为工作目录）：
+程序运行时需要以下文件在板子上（以 `/usr/bin/` 为工作目录）：
 
 ```bash
 # 二进制 (必需)
-scp bin/endoscope_ui root@<ip>:/mnt/
+scp bin/endoscope_ui root@<ip>:/usr/bin/
 
 # 字体文件 (必需, 否则中文显示方框)
-scp -r lang/ root@<ip>:/mnt/
+scp -r lang/ root@<ip>:/usr/bin/
 
 # 按钮图标 (必需, 否则右侧按钮无图标)
-mkdir -p /mnt/image  # 在板子上执行
-scp image/*.bmp root@<ip>:/mnt/image/
+mkdir -p /usr/bin/image  # 在板子上执行
+scp image/*.bmp root@<ip>:/usr/bin/image/
 ```
 
 板子上的目录结构：
 ```
-/mnt/
+/usr/bin/
 ├── endoscope_ui          # 主程序
 ├── lang/
 │   └── fonts/
@@ -101,7 +101,7 @@ ACTIVE_SENSOR ?= OV6946     # 默认 OV6946 (400x400)
 | 病人信息录入 | (LV_SYMBOL 占位) | — |
 | 回放 | (LV_SYMBOL 占位) | — |
 
-BMP 格式无需额外解码器（`LV_USE_BMP=1` 原生支持）。可放入板子 `/mnt/image/` 目录。
+BMP 格式无需额外解码器（`LV_USE_BMP=1` 原生支持）。可放入板子 `/usr/bin/image/` 目录。
 
 ## 字体与词库
 
