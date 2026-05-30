@@ -161,7 +161,7 @@ static void img_next_btn_event(lv_event_t * e)
 
 void endoscope_player_show_image(const char *path)
 {
-    if (playback_is_running() || playback_get_current_frame() > 0) {
+    if (playback_is_running()) {
         playback_stop();
         playback_restore_preview();
     }
@@ -182,7 +182,7 @@ static void back_btn_event(lv_event_t * e)
         free_image_list();
         g_image_path[0] = '\0';
     }
-    if (playback_is_running() || playback_get_current_frame() > 0) {
+    if (playback_is_running()) {
         playback_stop();
         playback_restore_preview();
     }
