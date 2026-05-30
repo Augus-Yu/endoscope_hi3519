@@ -8,9 +8,10 @@
 |------|------|
 | 实时预览 | OV6946 传感器视频实时显示在 1920x1080 屏幕中央 |
 | 电子变焦 | 三级变焦切换 (1x / 1.5x / 2x)，VPSS 动态重建实现 |
-| 拍照 | 冻结帧 JPEG 快照，保存到 ./endoscope/snapshot/ |
-| 录像 | H.264 编码，跟随当前变焦分辨率，保存到 ./endoscope/record/ |
-| 回放 | 读取 meta 文件自动匹配录制分辨率，支持逐帧播放 |
+| 拍照 | 冻结帧 JPEG 快照，自动生成 DCF 缩略图 `_thm.jpg`，保存到 `./endoscope/snapshot/` |
+| 录像 | H.264 编码，跟随当前变焦分辨率，保存到 `./endoscope/record/` |
+| 回放 | 网格缩略图浏览，支持图片 (JPEG) 和视频 (H.264) 混合显示，逐帧播放 |
+| 图片浏览 | 全屏查看 JPEG 图片，上一张/下一张循环导航 |
 | 多语言 | 中文 / English 切换 |
 | 图像设置 | 亮度、对比度、饱和度、锐度滑动调节 |
 | 病人信息 | 拼音输入法录入 ID / 姓名 / 性别 / 年龄 |
@@ -19,17 +20,32 @@
 | LED 亮度 | 头端 LED 6 档阶梯式调节 (0~5)，通过 LM3630A 驱动控制 |
 | 输入法 | 拼音输入法，内置 20924 汉字大词库，覆盖生僻人名用字 |
 | 外部字库 | Noto Sans CJK 字体 (16MB)，支持中文/日文/韩文显示 |
+| 自定义图标 | 右侧按钮支持 BMP 图标替换 LV_SYMBOL，支持状态切换 |
+| FPN 校准 | 自动暗帧 FPN (固定模式噪声) 校准，减少竖条纹 |
 
 ## 编译
 
 ```bash
 cd endoscope_hi3519/
-make clean && make -j4
+make -j4
 ```
 
 交叉编译器路径：`/opt/hisi-linux/x86-arm/arm-himix200-linux/bin/`
 
 产物：`bin/endoscope_ui`
+
+## 部署到板子
+
+```bash
+# 复制二进制
+scp bin/endoscope_ui root@<ip>:/mnt/
+
+# 复制字体
+scp -r lang/ root@<ip>:/mnt/
+
+# 复制图标 (可选, 右侧按钮自定义图标)
+scp image/*.png root@<ip>:/mnt/image/
+```
 
 ## 传感器切换
 
@@ -41,6 +57,25 @@ ACTIVE_SENSOR ?= OV6946     # 默认 OV6946 (400x400)
 ```
 
 新传感器只需在 `hi3519_port/sensor_config.c` 添加配置表，在 `sensor_config.h` 加 `#ifdef` 分支。配置表包含：分辨率、帧率、VB 池大小、变焦级别。
+
+## 自定义按钮图标
+
+主界面右侧 8 个按钮支持 BMP 格式自定义图标（80×80 像素，放在 `./image/` 目录）。
+
+当前图标映射：
+
+| 按钮 | BMP 文件 | 切换图 |
+|------|----------|--------|
+| 设置 | `scene.bmp` | — |
+| 白平衡 | `wb.bmp` | — |
+| 冻结 | `freeze.bmp` | `freeze_active.bmp` (冻结态) |
+| 拍照 | `capture.bmp` | — |
+| 录像 | `record.bmp` | `recording.bmp` (录像中) |
+| 电子放大 | `zoom.bmp` | — |
+| 病人信息录入 | (LV_SYMBOL 占位) | — |
+| 回放 | (LV_SYMBOL 占位) | — |
+
+BMP 格式无需额外解码器（`LV_USE_BMP=1` 原生支持）。可放入板子 `/mnt/image/` 目录。
 
 ## 字体与词库
 
@@ -57,38 +92,51 @@ ACTIVE_SENSOR ?= OV6946     # 默认 OV6946 (400x400)
 
 ### 拼音词库
 
-内置大词库 (`ui/lv_pinyin_large_dict.c`)：4654 拼音条目，覆盖 20924 个 CJK 汉字。替换了 LVGL 默认的 323 条小词库。多音字在所有读音下均可见，常用字优先排列。
+内置大词库 (`ui/lv_pinyin_large_dict.c`)：4654 拼音条目，覆盖 20924 个 CJK 汉字。替换了 LVGL 默认的 323 条小词库。
 
 ## 操作说明
+
+### 回放网格
+
+- 主界面点击 **回放** 进入网格浏览
+- 图片卡片显示缩略图（如有 `_thm.jpg`）或图标占位，视频卡片显示视频图标
+- 点击卡片进入播放器：图片全屏浏览，视频逐帧播放
+- 图片浏览支持上一张/下一张循环导航
+- 文件列表自动扫描 `./endoscope/record/` (视频) 和 `./endoscope/snapshot/` (图片/缩略图)
+- `_thm.jpg` 缩略图自动过滤，不会单独显示
+
+### 拍照与缩略图
+
+拍照时通过硬件 DCF (Design rule for Camera File system) 同时生成缩略图：
+
+- 主 JPEG：`./endoscope/snapshot/YYYYMMDD_HHMMSS.jpg` (400×400)
+- 缩略图：`./endoscope/snapshot/YYYYMMDD_HHMMSS_thm.jpg` (硬件生成)
+
+回放网格自动检测 `_thm.jpg` 存在则显示缩略图，否则显示图标占位。
 
 ### 电子变焦
 
 点击主界面右侧的 **电子放大** 按钮，在 1x → 1.5x → 2x 之间循环切换。视频窗口分辨率和显示区域同步变化。录制或回放时自动恢复到 1x。
 
-### 拍照
-
-点击 **拍照** 按钮。冻结状态下从 VO 通道抓帧编码为 JPEG。非冻结状态通过 VENC 快照。图像保存到 `./endoscope/snapshot/`。
-
 ### 录像
 
 1. 调整变焦到目标级别
-2. 点击 **录像** 按钮开始，再次点击停止
+2. 点击 **录像** 按钮开始，再次点击停止（图标和文字切换为"录像中"）
 3. 文件保存在 `./endoscope/record/`，包含 `.h264` 视频流和 `.meta` 分辨率信息
 4. 回放时自动按录制分辨率解码显示
 
-### 回放
+### FPN 校准
 
-- 主界面点击 **回放** 进入文件列表
-- 点击文件播放，自动匹配录制分辨率
-- 支持变速播放，显示进度条
+系统设置页提供 FPN 校准功能。校准前请确保镜体完全遮光：
+1. 进入设置 → 系统 → FPN 校准
+2. 确认遮光后点击确定
+3. 系统自动切换 ONLINE 模式，关闭传感器曝光 + ISP 最低曝光 + 黑电平最大 + LED 关
+4. 采集 16 帧暗帧数据，生成 FPN 校正文件 `./FPN_Frame_xxx.raw`
+5. 冷启动时自动加载并启用 FPN 校正
 
 ### LED 亮度调节
 
 主界面右下角滑动条，6 档阶梯式 (0~5)，拖动时实时写入 `/dev/lm3630a` 控制 LM3630A LED 驱动芯片。
-
-### 输入法
-
-病人信息录入和密码修改时，点击输入框弹出拼音输入法。支持中/英键盘切换。拼音候选词来自 20924 汉字大词库。
 
 ## 工程结构
 
@@ -96,18 +144,19 @@ ACTIVE_SENSOR ?= OV6946     # 默认 OV6946 (400x400)
 endoscope_hi3519/
 ├── main.c                            # 入口点 (LVGL 初始化、主循环)
 ├── Makefile                          # 交叉编译配置
-├── lv_conf.h                         # LVGL 配置 (Tiny TTF、输入法、缓存等)
+├── lv_conf.h                         # LVGL 配置 (Tiny TTF、输入法、缓存、解码器等)
 ├── lang/fonts/                       # 外部字体文件
 │   ├── NotoSans-Regular.ttf          # 拉丁字体
 │   └── NotoSansCJKsc-Regular.otf     # CJK 字体
+├── image/                            # 自定义按钮图标 (BMP, 80x80)
 ├── ui/                               # LVGL 界面
 │   ├── endoscope_ui.c/.h             # 应用初始化、页面注册和切换
-│   ├── endoscope_main.c/.h           # 主界面：预览窗口、按钮、变焦、LED 控制
-│   ├── endoscope_settings.c          # 设置页
+│   ├── endoscope_main.c/.h           # 主界面：预览窗口、按钮、变焦、LED、拍照
+│   ├── endoscope_settings.c          # 设置页 (含 FPN 校准按钮)
 │   ├── endoscope_image_settings.c    # 图像参数设置
-│   ├── endoscope_playback.c          # 回放文件列表
-│   ├── endoscope_player.c            # 播放器控制
-│   ├── endoscope_dialogs.c           # 通用对话框 (密码修改等)
+│   ├── endoscope_playback.c          # 回放网格浏览 (Flex 布局、缩略图、延迟加载)
+│   ├── endoscope_player.c            # 播放器 (视频播放 + 图片全屏浏览)
+│   ├── endoscope_dialogs.c           # 通用对话框 (密码修改、确认弹窗)
 │   ├── endoscope_splash.c            # 启动画面
 │   ├── lang_manager.c/.h             # 中英文多语言管理 (硬编码翻译表)
 │   ├── font_manager.c/.h             # TTF 字体管理器 (Tiny TTF 渲染)
@@ -118,8 +167,9 @@ endoscope_hi3519/
 ├── hi3519_port/                      # Hi3519 硬件移植层
 │   ├── mpp_video.c/.h                # MPP 视频管道 (VI→VPSS→VO)
 │   ├── sensor_config.c/.h            # 多传感器抽象 (编译时切换)
-│   ├── mpp_record.c/.h               # H.264 录像
-│   ├── mpp_playback.c/.h             # 视频回放
+│   ├── mpp_record.c/.h               # H.264 录像 + JPEG 快照 (含 DCF 缩略图)
+│   ├── mpp_playback.c/.h             # 视频回放 (VDEC 解码)
+│   ├── mpp_fpn.c/.h                  # FPN 自动校准 (暗帧采集 + 校正)
 │   ├── lv_port_disp.c/.h             # LVGL 显示驱动 (/dev/fb0 + colorkey 透明)
 │   └── lv_port_indev.c/.h            # LVGL 输入驱动 (鼠标/触摸)
 └── hi3519_sdk/                       # Hi3519 SDK (本地拷贝)
@@ -146,6 +196,23 @@ HIFB G0 (/dev/fb0) → LVGL UI + colorkey 透明叠加
 - **VB 池**：三个池（标准帧 / Bayer 数据 / 变焦大帧），按传感器分辨率动态配置
 - **变焦实现**：解绑 → 销毁 VPSS 组 → 新分辨率重建 → 重绑 → 同步更新 VO 层和透明区域
 - **透明叠加**：LVGL 渲染到 fb0，视频区域写绿色 (0x00FF00) 作为 colorkey，VO 层在 fb0 下方透过 colorkey 显示
+- **DCF 缩略图**：拍照时 VENC 启用 `bSupportDcf=TRUE`，硬件编码 JPEG 内嵌缩略图，通过 `Getdcfinfo` 提取为 `_thm.jpg`
+- **Ctrl+C 重启**：不退出 MPP 管线，重启时复用已有管道句柄
+
+## LVGL 配置要点
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| `LV_COLOR_DEPTH` | 32 | ARGB8888 显示 |
+| `LV_USE_TJPGD` | 1 | Tiny JPEG 解码 (缩略图/图片浏览) |
+| `LV_USE_BMP` | 1 | BMP 解码 (按钮图标) |
+| `LV_USE_LODEPNG` | 0 | PNG 解码 (未启用，用 BMP 替代) |
+| `LV_USE_FS_STDIO` | 1 | 标准 I/O 文件系统 (驱动字母 A) |
+| `LV_FS_DEFAULT_DRIVER_LETTER` | 'A' | 默认 STDIO 驱动，路径无需前缀 |
+| `LV_USE_FLEX` | 1 | Flex 布局 (回放网格) |
+| `LV_USE_GRID` | 1 | Grid 布局 |
+| `LV_TINY_TTF_CACHE_GLYPH_CNT` | 2048 | 字体缓存 |
+| `LV_IME_PINYIN_USE_DEFAULT_DICT` | 0 | 使用自定义大词库 |
 
 ## LED 驱动
 
@@ -155,5 +222,3 @@ LM3630A LED 背光驱动 (`/dev/lm3630a`)，字符设备接口：
 # 写入亮度等级 (0~5)
 echo -n $'\x03' > /dev/lm3630a   # 3 档 (60%)
 ```
-
-驱动源码位于 Hi3519 SDK 目录：`drv/interdrv/lm3630a/lm3630a.c`。亮度表定义在 `lm3630a_brt_table[]` 中。
