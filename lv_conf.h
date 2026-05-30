@@ -342,7 +342,7 @@
  *====================*/
 
 /* File system */
-#define LV_FS_DEFAULT_DRIVER_LETTER '\0'
+#define LV_FS_DEFAULT_DRIVER_LETTER 'A'
 
 /** Enable stdio file system for loading resources */
 #define LV_USE_FS_STDIO 1
@@ -365,7 +365,7 @@
 #define LV_USE_LODEPNG 0
 #define LV_USE_LIBPNG 0
 #define LV_USE_BMP 1
-#define LV_USE_TJPGD 0
+#define LV_USE_TJPGD 1
 #define LV_USE_LIBJPEG_TURBO 0
 #define LV_USE_GIF 0
 #define LV_BIN_DECODER_RAM_LOAD 1

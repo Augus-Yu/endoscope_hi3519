@@ -129,11 +129,12 @@ static const translation_entry_t en_translations[] = {
     {"DLG_PASSWORD_NOT_MATCH", "Passwords do not match"},
     
     /* 录像回放 */
-    {"PLAYBACK_TITLE", "Video Playback"},
+    {"PLAYBACK_TITLE", "Playback"},
     {"PLAYBACK_BACK", "< Back"},
     {"PLAYBACK_REFRESH", "Refresh"},
-    {"PLAYBACK_NO_FILES", "No video files"},
-    {"PLAYBACK_FILE_PREFIX", "[Video]"},
+    {"PLAYBACK_NO_FILES", "No media files"},
+    {"PLAYBACK_VID_PREFIX", "[VID]"},
+    {"PLAYBACK_IMG_PREFIX", "[IMG]"},
     {"PLAYBACK_FAILED", "Playback failed"},
 
     /* 图像设置 */
@@ -268,11 +269,12 @@ static const translation_entry_t zh_translations[] = {
     {"DLG_PASSWORD_NOT_MATCH", "密码不匹配"},
     
     /* 录像回放 */
-    {"PLAYBACK_TITLE", "录像回放"},
+    {"PLAYBACK_TITLE", "回放"},
     {"PLAYBACK_BACK", "< 返回"},
     {"PLAYBACK_REFRESH", "刷新"},
-    {"PLAYBACK_NO_FILES", "无录像文件"},
-    {"PLAYBACK_FILE_PREFIX", "[视]"},
+    {"PLAYBACK_NO_FILES", "无媒体文件"},
+    {"PLAYBACK_VID_PREFIX", "[视]"},
+    {"PLAYBACK_IMG_PREFIX", "[图]"},
     {"PLAYBACK_FAILED", "播放失败"},
 
     /* 图像设置 */

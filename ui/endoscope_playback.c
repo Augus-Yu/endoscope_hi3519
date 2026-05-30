@@ -5,6 +5,7 @@
 #include "ui_theme.h"
 #include "font_manager.h"
 #include "ui_helpers.h"
+#include "endoscope_player.h"
 #include "hi3519_port/mpp_playback.h"
 #include <stdio.h>
 #include <string.h>
@@ -13,7 +14,8 @@
 
 extern volatile int g_video_trans_enable;
 
-#define RECORD_DIR "./endoscope/record"
+#define RECORD_DIR    "./endoscope/record"
+#define SNAPSHOT_DIR "./endoscope/snapshot"
 
 static lv_obj_t * playback_screen = NULL;
 static lv_obj_t * file_list = NULL;
@@ -81,41 +83,56 @@ void endoscope_playback_hide(void)
 {
 }
 
+static int is_image_ext(const char *name, size_t len)
+{
+    return (len > 4 && strcasecmp(name + len - 4, ".jpg") == 0);
+}
+
+static int is_video_ext(const char *name, size_t len)
+{
+    return ((len > 5 && strcmp(name + len - 5, ".h264") == 0) ||
+            (len > 4 && strcmp(name + len - 4, ".264") == 0));
+}
+
+static void scan_dir(const char *dirpath, lv_obj_t *list, int *count)
+{
+    DIR *dir = opendir(dirpath);
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        size_t len = strlen(entry->d_name);
+        int is_img  = is_image_ext(entry->d_name, len);
+        int is_vid  = is_video_ext(entry->d_name, len);
+        if (!is_img && !is_vid) continue;
+
+        char label[320];
+        const char *prefix = is_img ? _TR("PLAYBACK_IMG_PREFIX") : _TR("PLAYBACK_VID_PREFIX");
+        snprintf(label, sizeof(label), "%s %s", prefix, entry->d_name);
+        lv_obj_t *btn = lv_list_add_btn(list, NULL, label);
+
+        char fullpath[512];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+        char *path_dup = strdup(fullpath);
+        lv_obj_add_event_cb(btn, file_click_event, LV_EVENT_CLICKED, path_dup);
+        (*count)++;
+    }
+    closedir(dir);
+}
+
 static void refresh_list(void)
 {
     if (file_list) lv_obj_clean(file_list);
 
-    DIR *dir = opendir(RECORD_DIR);
-    if (!dir) {
-        lv_obj_t * lbl = lv_label_create(file_list);
-        lv_label_set_text(lbl, _TR("PLAYBACK_NO_FILES"));
-        lv_obj_set_style_text_color(lbl, UI_COLOR_TEXT, 0);
-        return;
-    }
-
     int count = 0;
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        size_t len = strlen(entry->d_name);
-        if (len < 5) continue;
-        if (strcmp(entry->d_name + len - 5, ".h264") != 0 &&
-            strcmp(entry->d_name + len - 4, ".264") != 0)
-            continue;
 
-        char label[256];
-        snprintf(label, sizeof(label), "%s %s", _TR("PLAYBACK_FILE_PREFIX"), entry->d_name);
-        lv_obj_t * btn = lv_list_add_btn(file_list, NULL, label);
-
-        char fullpath[512];
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", RECORD_DIR, entry->d_name);
-        char *path_dup = strdup(fullpath);
-        lv_obj_add_event_cb(btn, file_click_event, LV_EVENT_CLICKED, path_dup);
-        count++;
-    }
-    closedir(dir);
+    /* 扫描录像目录 */
+    scan_dir(RECORD_DIR, file_list, &count);
+    /* 扫描截屏目录 */
+    scan_dir(SNAPSHOT_DIR, file_list, &count);
 
     if (count == 0) {
-        lv_obj_t * lbl = lv_label_create(file_list);
+        lv_obj_t *lbl = lv_label_create(file_list);
         lv_label_set_text(lbl, _TR("PLAYBACK_NO_FILES"));
         lv_obj_set_style_text_color(lbl, UI_COLOR_TEXT, 0);
     }
@@ -138,6 +155,16 @@ static void file_click_event(lv_event_t * e)
     const char *path = lv_event_get_user_data(e);
     if (!path) return;
 
+    size_t len = strlen(path);
+
+    /* 图片: 进入图片查看模式 */
+    if (is_image_ext(path, len)) {
+        endoscope_player_show_image(path);
+        screen_manager_navigate_to(ENDOSCOPE_SCREEN_PLAYER);
+        return;
+    }
+
+    /* 视频: 原有 MPP 播放流程 */
     if (playback_is_running())
         playback_stop();
 

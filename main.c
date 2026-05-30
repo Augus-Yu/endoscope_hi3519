@@ -70,6 +70,7 @@ int main(int argc, char **argv)
 
     printf("[1/3] Initializing LVGL and UI...\n");
     lv_init();
+    lv_fs_stdio_init();
 
     if (lv_port_disp_init() != 0) {
         fprintf(stderr, "Error: Display initialization failed\n");
