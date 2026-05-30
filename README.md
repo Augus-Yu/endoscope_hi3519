@@ -36,15 +36,41 @@ make -j4
 
 ## 部署到板子
 
+程序运行时需要以下文件在板子上（以 `/mnt/` 为工作目录）：
+
 ```bash
-# 复制二进制
+# 二进制 (必需)
 scp bin/endoscope_ui root@<ip>:/mnt/
 
-# 复制字体
+# 字体文件 (必需, 否则中文显示方框)
 scp -r lang/ root@<ip>:/mnt/
 
-# 复制图标 (可选, 右侧按钮自定义图标)
-scp image/*.png root@<ip>:/mnt/image/
+# 按钮图标 (必需, 否则右侧按钮无图标)
+mkdir -p /mnt/image  # 在板子上执行
+scp image/*.bmp root@<ip>:/mnt/image/
+```
+
+板子上的目录结构：
+```
+/mnt/
+├── endoscope_ui          # 主程序
+├── lang/
+│   └── fonts/
+│       ├── NotoSans-Regular.ttf
+│       └── NotoSansCJKsc-Regular.otf
+├── image/
+│   ├── scene.bmp          # 设置
+│   ├── wb.bmp             # 白平衡
+│   ├── freeze.bmp         # 冻结
+│   ├── freeze_active.bmp  # 冻结态
+│   ├── capture.bmp        # 拍照
+│   ├── record.bmp         # 录像
+│   ├── recording.bmp      # 录像中
+│   └── zoom.bmp           # 电子放大
+├── endoscope/
+│   ├── record/            # 录像文件 (.h264 + .meta)
+│   └── snapshot/          # 拍照文件 (.jpg + _thm.jpg)
+└── FPN_Frame_xxx.raw      # FPN 校准文件 (自动生成)
 ```
 
 ## 传感器切换
