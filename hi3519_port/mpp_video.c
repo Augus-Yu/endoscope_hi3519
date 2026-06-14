@@ -162,6 +162,14 @@ HI_S32 video_init(video_context_t *ctx)
     if (s_mpp_was_running) {
         ctx->state = VIDEO_STATE_INIT;
         printf("Pipeline reused from previous session\n");
+        /* 复用管线时加载FPN校正文件 (VI在线, 无法切模式自动校准) */
+        {
+            fpn_status_t fpn_ret = mpp_fpn_load_file_only(ctx->vi_pipe);
+            if (fpn_ret == FPN_STATUS_OK)
+                printf("FPN correction loaded (reused session)\n");
+            else
+                printf("FPN not loaded (no file), use Settings->FPN to calibrate\n");
+        }
         return HI_SUCCESS;
     }
 
