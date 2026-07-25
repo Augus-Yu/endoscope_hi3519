@@ -4512,11 +4512,6 @@ HI_S32 SAMPLE_VI_PlanToSemi(HI_U8* pY, HI_S32 yStride,
     ptu = pTmpU;
     pTmpV = malloc(s32Size);
     ptv = pTmpV;
-    if (NULL == pTmpU || NULL == pTmpV) {
-        free(ptu);
-        free(ptv);
-        return HI_FAILURE;
-    }
 
     memcpy(pTmpU, pU, s32Size);
     memcpy(pTmpV, pV, s32Size);
@@ -4555,11 +4550,6 @@ HI_S32 SAMPLE_VI_PlanToSemi_422(HI_U8* pY, HI_S32 yStride,
     ptu = pTmpU;
     pTmpV = malloc(s32Size);
     ptv = pTmpV;
-    if (NULL == pTmpU || NULL == pTmpV) {
-        free(ptu);
-        free(ptv);
-        return HI_FAILURE;
-    }
 
     memcpy(pTmpU, pU, s32Size);
     memcpy(pTmpV, pV, s32Size);
