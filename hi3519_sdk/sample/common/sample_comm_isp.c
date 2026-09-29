@@ -168,6 +168,7 @@ HI_S32 SAMPLE_COMM_ISP_GetIspAttrBySns(SAMPLE_SNS_TYPE_E enSnsType, ISP_PUB_ATTR
             break;
 
         default:
+            SAMPLE_PRT("not support enSnsType: %d\n", enSnsType);
             memcpy(pstPubAttr, &ISP_PUB_ATTR_IMX290_2M_30FPS, sizeof(ISP_PUB_ATTR_S));
             break;
     }

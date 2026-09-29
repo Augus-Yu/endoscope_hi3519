@@ -232,7 +232,7 @@ HIFB G0 (/dev/fb0) → LVGL UI + colorkey 透明叠加
 | `LV_COLOR_DEPTH` | 32 | ARGB8888 显示 |
 | `LV_USE_TJPGD` | 1 | Tiny JPEG 解码 (缩略图/图片浏览) |
 | `LV_USE_BMP` | 1 | BMP 解码 (按钮图标) |
-| `LV_USE_LODEPNG` | 0 | PNG 解码 (未启用，用 BMP 替代) |
+| `LV_USE_LODEPNG` | 1 | PNG 解码 |
 | `LV_USE_FS_STDIO` | 1 | 标准 I/O 文件系统 (驱动字母 A) |
 | `LV_FS_DEFAULT_DRIVER_LETTER` | 'A' | 默认 STDIO 驱动，路径无需前缀 |
 | `LV_USE_FLEX` | 1 | Flex 布局 (回放网格) |

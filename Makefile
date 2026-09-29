@@ -238,7 +238,7 @@ info:
 	@echo "Target: $(BIN_DIR)/$(TARGET)"
 	@echo "Object directory: $(OBJ_DIR)"
 	@echo ""
-	@echo "MPP SDK: $(MPP_PATH)"
+	@echo "MPP SDK: $(HI3519_SDK_DIR)"
 	@echo "MPP_INC: $(MPP_INC)"
 	@echo "MPP_LIB: $(MPP_LIB)"
 	@echo ""
