@@ -189,17 +189,8 @@ ISP_SNS_OBJ_S* SAMPLE_COMM_ISP_GetSnsObj(HI_U32 u32SnsId)
         case OV_OV6946_DC_1M_30FPS:
             return &stSnsOv6946Obj;
 
-        case SONY_IMX290_MIPI_2M_30FPS_12BIT:
-        case SONY_IMX290_MIPI_2M_30FPS_12BIT_WDR2TO1:
-            return &stSnsImx290Obj;
-
-        case SONY_IMX290_SLAVE_MIPI_2M_60FPS_10BIT:
-            return &stSnsImx290SlaveObj;
-
-        case SONY_IMX334_MIPI_8M_30FPS_12BIT:
-        case SONY_IMX334_MIPI_8M_30FPS_12BIT_WDR2TO1:
-            return &stSnsImx334Obj;
-
+        /* IMX290/IMX334 驱动库已从本工程移除，这几路传感器不再支持，
+           对应的枚举值统一落到 default 返回 HI_NULL */
         default:
             return HI_NULL;
     }

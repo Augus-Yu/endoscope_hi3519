@@ -103,9 +103,12 @@ CFLAGS += -DACTIVE_SENSOR_$(ACTIVE_SENSOR)
 # SDK sample common 传感器类型宏（用于编译 sample_comm_*.c）
 CFLAGS += -DSENSOR0_TYPE=OV_OV9734_MIPI_1M_30FPS
 CFLAGS += -DSENSOR1_TYPE=OV_OV6946_DC_1M_30FPS
-CFLAGS += -DSENSOR2_TYPE=SONY_IMX290_SLAVE_MIPI_2M_60FPS_10BIT
-CFLAGS += -DSENSOR3_TYPE=SONY_IMX290_SLAVE_MIPI_2M_60FPS_10BIT
-CFLAGS += -DSENSOR4_TYPE=SONY_IMX334_MIPI_8M_30FPS_12BIT
+# 第 2~4 路未接传感器，复用已链接的 OV 枚举占位。
+# 不可删除：sample_comm_isp.c 用它初始化 g_enSnsType[]，
+# sample_comm_vi.c 用它填充 astViInfo[2..4]，缺宏会编译失败。
+CFLAGS += -DSENSOR2_TYPE=OV_OV9734_MIPI_1M_30FPS
+CFLAGS += -DSENSOR3_TYPE=OV_OV6946_DC_1M_30FPS
+CFLAGS += -DSENSOR4_TYPE=OV_OV9734_MIPI_1M_30FPS
 
 # C++标志
 CXXFLAGS := $(CFLAGS)
@@ -138,10 +141,7 @@ ISP_LIBS += $(MPP_LIB)/lib_hildci.a
 
 # 传感器库
 SNS_LIBS := $(MPP_LIB)/libsns_ov9734.a \
-            $(MPP_LIB)/libsns_ov6946.a \
-            $(MPP_LIB)/libsns_imx290.a \
-            $(MPP_LIB)/libsns_imx290_slave.a \
-            $(MPP_LIB)/libsns_imx334.a
+            $(MPP_LIB)/libsns_ov6946.a
 
 # 音频库
 AUDIO_LIBS := $(MPP_LIB)/libVoiceEngine.a
