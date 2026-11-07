@@ -23,6 +23,7 @@ MPP_INC := $(HI3519_SDK_DIR)/include
 LVGL_DIR := ../lvgl
 UI_DIR := ui
 PORT_DIR := hi3519_port
+SENSOR_DIR := sensor
 OBJ_DIR := obj
 BIN_DIR := bin
 
@@ -44,6 +45,10 @@ UI_SRCS := $(wildcard $(UI_DIR)/*.c)
 # Hi3519移植层代码
 PORT_SRCS := $(wildcard $(PORT_DIR)/*.c)
 
+# 传感器驱动源码 (OV6946 / OV9734, 原先链接预编译库 libsns_*.a)
+# 每颗传感器一个子目录, 各自带自己的 *_cmos_ex.h 寄存器初始化表
+SENSOR_SRCS := $(wildcard $(SENSOR_DIR)/*/*.c)
+
 # 主程序
 MAIN_SRC := main.c
 
@@ -57,7 +62,7 @@ SDK_SRCS := $(HI3519_SDK_DIR)/sample/common/sample_comm_vi.c \
             $(HI3519_SDK_DIR)/sample/common/sample_comm_vdec.c
 
 # 所有源文件
-ALL_SRCS := $(LVGL_SRCS) $(LVGL_DEMOS) $(UI_SRCS) $(PORT_SRCS) $(SDK_SRCS) $(MAIN_SRC)
+ALL_SRCS := $(LVGL_SRCS) $(LVGL_DEMOS) $(UI_SRCS) $(PORT_SRCS) $(SENSOR_SRCS) $(SDK_SRCS) $(MAIN_SRC)
 
 #===============================================================================
 # 对象文件 - 简单替换: .c -> .o 并加上obj前缀
@@ -78,6 +83,8 @@ INCS += -I$(LVGL_DIR)/src
 INCS += -I$(MPP_INC)
 INCS += -I$(UI_DIR)
 INCS += -I$(PORT_DIR)
+INCS += -I$(SENSOR_DIR)/ov_6946
+INCS += -I$(SENSOR_DIR)/ov_9734
 INCS += -I$(HI3519_SDK_DIR)/sample/common
 
 #===============================================================================
@@ -139,9 +146,9 @@ ISP_LIBS += $(MPP_LIB)/lib_hidehaze.a
 ISP_LIBS += $(MPP_LIB)/lib_hidrc.a
 ISP_LIBS += $(MPP_LIB)/lib_hildci.a
 
-# 传感器库
-SNS_LIBS := $(MPP_LIB)/libsns_ov9734.a \
-            $(MPP_LIB)/libsns_ov6946.a
+# 传感器库: OV6946/OV9734 已改为从源码编译 (见 SENSOR_SRCS),
+# 不再链接预编译的 libsns_*.a —— 否则 stSnsOv*Obj 等符号会重复定义
+SNS_LIBS :=
 
 # 音频库
 AUDIO_LIBS := $(MPP_LIB)/libVoiceEngine.a
@@ -204,6 +211,12 @@ $(OBJ_DIR)/$(PORT_DIR)/%.o: $(PORT_DIR)/%.c
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# 编译规则: 传感器驱动源码
+$(OBJ_DIR)/$(SENSOR_DIR)/%.o: $(SENSOR_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "CC $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # 编译规则: SDK sample common 源码
 $(OBJ_DIR)/$(HI3519_SDK_DIR)/sample/common/%.o: $(HI3519_SDK_DIR)/sample/common/%.c
 	@mkdir -p $(dir $@)
@@ -247,5 +260,6 @@ info:
 	@echo "  LVGL demos: $(words $(LVGL_DEMOS))"
 	@echo "  UI files: $(words $(UI_SRCS))"
 	@echo "  Port files: $(words $(PORT_SRCS))"
+	@echo "  Sensor files: $(words $(SENSOR_SRCS))"
 	@echo "  Total objects: $(words $(OBJS))"
 	@echo "============================================================"

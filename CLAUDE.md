@@ -72,6 +72,13 @@ endoscope_hi3519/
 │   ├── mpp_fpn.c/.h           # FPN 自动校准 (暗帧采集 + 校正)
 │   ├── lv_port_disp.c/.h      # LVGL 显示驱动 (/dev/fb0 + colorkey 透明)
 │   └── lv_port_indev.c/.h     # LVGL 输入驱动 (鼠标/触摸)
+├── sensor/                    # 传感器驱动源码 (从 SDK 移入, 编译进工程)
+│   ├── ov_6946/               # OV6946 驱动
+│   │   ├── ov6946_cmos.c      # 主体 (cmos_ex.h 为寄存器初始化表)
+│   │   └── ov6946_sensor_ctl.c # I2C 控制
+│   └── ov_9734/               # OV9734 驱动
+│       ├── ov9734_cmos.c
+│       └── ov9734_sensor_ctl.c
 └── hi3519_sdk/                # Hi3519 SDK 本地拷贝
     ├── include/               # MPP 头文件
     ├── lib/                   # MPP 静态库 / 动态库
