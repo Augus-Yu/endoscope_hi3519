@@ -622,48 +622,8 @@ static void do_fpn_calibration(void)
         printf("[FPN] MPP reused session, calibration may fail, try anyway...\n");
     }
 
-    printf("[FPN] stopping preview for calibration...\n");
-    vc->b_running = HI_FALSE;
-    video_stop(vc);
-    SAMPLE_COMM_VPSS_UnBind_VO(vc->vpss_grp, vc->vpss_chn, vc->vo_dev, vc->vo_chn);
-    SAMPLE_COMM_VI_UnBind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
-    { HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0}; ab[vc->vpss_chn] = HI_TRUE;
-      SAMPLE_COMM_VPSS_Stop(vc->vpss_grp, ab); }
-
-    fpn_status_t ret = mpp_fpn_calibrate(vc->vi_pipe);
-    printf("[FPN] calibration returned %d, rebuilding VPSS...\n", ret);
-
-    { VPSS_GRP_ATTR_S g; VPSS_CHN_ATTR_S ac[VPSS_MAX_PHY_CHN_NUM];
-      HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM] = {0};
-      memset(&g, 0, sizeof(g));
-      g.stFrameRate.s32SrcFrameRate = -1; g.stFrameRate.s32DstFrameRate = -1;
-      g.enDynamicRange = DYNAMIC_RANGE_SDR8;
-      g.enPixelFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
-      g.u32MaxW = vc->sensor->width; g.u32MaxH = vc->sensor->height;
-      g.bNrEn = HI_FALSE; /* 3DNR关闭 */
-      g.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
-      g.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
-      memset(ac, 0, sizeof(ac));
-      ac[vc->vpss_chn].u32Width = vc->sensor->width;
-      ac[vc->vpss_chn].u32Height = vc->sensor->height;
-      ac[vc->vpss_chn].enChnMode = VPSS_CHN_MODE_USER;
-      ac[vc->vpss_chn].enCompressMode = COMPRESS_MODE_NONE;
-      ac[vc->vpss_chn].enDynamicRange = DYNAMIC_RANGE_SDR8;
-      ac[vc->vpss_chn].enVideoFormat = VIDEO_FORMAT_LINEAR;
-      ac[vc->vpss_chn].enPixelFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
-      ac[vc->vpss_chn].stFrameRate.s32SrcFrameRate = (HI_S32)vc->sensor->fps;
-      ac[vc->vpss_chn].stFrameRate.s32DstFrameRate = (HI_S32)vc->sensor->fps;
-      ab[vc->vpss_chn] = HI_TRUE;
-      printf("[FPN] starting VPSS...\n");
-      HI_S32 r = SAMPLE_COMM_VPSS_Start(vc->vpss_grp, ab, &g, ac);
-      printf("[FPN] VPSS start ret=0x%x\n", r); }
-    printf("[FPN] binding VI->VPSS...\n");
-    SAMPLE_COMM_VI_Bind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
-    printf("[FPN] binding VPSS->VO...\n");
-    SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn, vc->vo_dev, vc->vo_chn);
-    printf("[FPN] starting video...\n");
-    video_start(vc);
-    printf("[FPN] video restarted\n");
+    /* 拆 VPSS → 校准 → 重建, 与调试用的亮场采样共用同一套流程 */
+    fpn_status_t ret = mpp_fpn_calibrate_running(0);
 
     if (ret == FPN_STATUS_OK)
         endoscope_dialogs_success("FPN", "校准成功!", _TR("DLG_BTN_OK"));

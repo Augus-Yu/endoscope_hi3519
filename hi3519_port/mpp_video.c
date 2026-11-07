@@ -162,8 +162,11 @@ HI_S32 video_init(video_context_t *ctx)
     if (s_mpp_was_running) {
         ctx->state = VIDEO_STATE_INIT;
         printf("Pipeline reused from previous session\n");
-        /* 复用管线时加载FPN校正文件 (VI在线, 无法切模式自动校准) */
-        {
+        /* 复用管线时加载FPN校正文件 (VI在线, 无法切模式自动校准)
+         * 注意: Ctrl+C 不拆管线, 所以第二次运行会走这里 —— FPN_DISABLE 必须同样生效 */
+        if (getenv("FPN_DISABLE")) {
+            printf("FPN_DISABLE set -> FPN skipped (reused session)\n");
+        } else {
             fpn_status_t fpn_ret = mpp_fpn_load_file_only(ctx->vi_pipe);
             if (fpn_ret == FPN_STATUS_OK)
                 printf("FPN correction loaded (reused session)\n");
@@ -180,8 +183,16 @@ HI_S32 video_init(video_context_t *ctx)
         return s32Ret;
     }
 
-    /* 开机自动FPN: 有文件加载, 无则自动校准 */
-    {
+    /* 开机自动FPN: 有文件加载, 无则自动校准
+     * 调试开关 (环境变量):
+     *   FPN_DISABLE=1  -> 完全跳过 FPN (不加载也不校准), 用于观察无校正时的基线
+     *   FPN_DUMP_LIT=1 -> 采一帧亮场数据 (见 mpp_fpn_dump_lit) */
+    if (getenv("FPN_DISABLE")) {
+        printf("FPN_DISABLE set -> FPN disabled (neither load nor calibrate)\n");
+    } else if (getenv("FPN_DUMP_LIT")) {
+        printf("FPN_DUMP_LIT set -> dumping a lit frame instead of loading FPN\n");
+        mpp_fpn_dump_lit(ctx->vi_pipe);
+    } else {
         fpn_status_t fpn_ret = mpp_fpn_load(ctx->vi_pipe);
         if (fpn_ret == FPN_STATUS_OK)
             printf("FPN correction loaded\n");

@@ -11,11 +11,22 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 
 #define OV6946_I2C_BUS  2
 #define OV6946_I2C_ADDR 0x36
+
+/* FPN 校正强度 —— 仅在 OP_TYPE_MANUAL 下有效 (HiISP 开发参考 6.15.3):
+ * 范围 [0,1023], 1 倍强度 = 256。自动模式下该值被忽略。 */
+#define FPN_CORRECTION_STRENGTH 256
+
+/* 用 OP_TYPE_AUTO 而非 MANUAL:
+ * HiISP 开发参考 6.15.3 明确 ISP_FPN_AUTO_ATTR_S.u32Strength 是"只读属性,
+ * ISP FWM 根据 ISO 自动调整", 所以 SDK 不写 stAuto 并不是问题 —— 之前担心的
+ * "未初始化栈残留"并不存在。自动模式按"当前 ISO ÷ 标定 ISO"缩放强度,
+ * 正好匹配乘性(增益相关)的竖条纹。 */
 
 /* SDK sample_comm_vi.c 内部函数 (未在 sample_comm.h 公开) */
 extern HI_S32 SAMPLE_VI_GetFrameBlkInfo(SAMPLE_VI_FRAME_CONFIG_S *pstFrmCfg,
@@ -28,24 +39,15 @@ extern HI_VOID SAMPLE_COMM_VI_SaveFpnFile(
 static fpn_status_t g_fpn_status = FPN_STATUS_IDLE;
 static int g_led_saved = -1;
 
-/* ── OV6946 I2C 寄存器操作 ── */
+/* 调试开关: 置 1 时跳过所有"变暗"步骤, 采样一帧亮场数据。
+ * 用途: 判断竖条纹到底存不存在于 VI 原始数据里 —— 保持其他环节不变,
+ * 只把"关灯/杀曝光"换成正常曝光, 采出来的表就能和暗场表逐列对比。 */
+static int g_fpn_skip_darken = 0;
+#define FPN_LIT_DUMP_FILE "./FPN_Lit_w%d_h%d_%dbit.raw"
 
-static int ov6946_write(HI_U16 reg, HI_U8 val)
-{
-    char fn[20]; int fd, ret;
-    unsigned char buf[3];
-    snprintf(fn, sizeof(fn), "/dev/i2c-%d", OV6946_I2C_BUS);
-    fd = open(fn, O_RDWR);
-    if (fd < 0) return -1;
-    ret = ioctl(fd, I2C_SLAVE_FORCE, OV6946_I2C_ADDR);
-    if (ret < 0) { close(fd); return -1; }
-    buf[0] = (reg >> 8) & 0xFF;
-    buf[1] = reg & 0xFF;
-    buf[2] = val & 0xFF;
-    ret = write(fd, buf, 3);
-    close(fd);
-    return (ret == 3) ? 0 : -1;
-}
+/* ── OV6946 I2C 寄存器操作 ──
+ * 只保留读: 校准不再改写传感器寄存器 (旧实现写 0 会破坏"在工作增益下采黑帧"
+ * 这一前提)。如果以后需要写寄存器, 从 git 历史里恢复 ov6946_write 即可。 */
 
 static int ov6946_read(HI_U16 reg, HI_U8 *val)
 {
@@ -68,34 +70,25 @@ static int ov6946_read(HI_U16 reg, HI_U8 *val)
     return (ret == 2) ? 0 : -1;
 }
 
-static HI_U8 saved_exp_3501, saved_exp_3502, saved_gain_350b;
-static int sensor_regs_saved;
-
-static void ov6946_kill_exposure(void)
+/* 文档 6.15.1 要求"在 FPN 最严重的 ISO 下固定增益"再遮光采黑帧。
+ * 所以这里只读传感器寄存器做诊断, 绝不改写 —— 增益由 ISP AE 驱动,
+ * 下面用 QueryExposureInfo 拿到的当前值把 AE 冻结住即可。
+ *
+ * 旧实现把 0x3501/0x3502/0x350B 全写 0, 等于在 1x 增益下采黑帧; 而竖条纹
+ * 是乘性的, 在 1x 增益下几乎消失, 采出来的校正表是平的 —— 这才是竖条纹
+ * 一直去不掉的根因。 */
+static void ov6946_log_exposure(void)
 {
-    sensor_regs_saved = 0;
-    if (ov6946_read(0x3501, &saved_exp_3501) < 0 ||
-        ov6946_read(0x3502, &saved_exp_3502) < 0 ||
-        ov6946_read(0x350B, &saved_gain_350b) < 0) {
-        printf("[FPN] OV6946 I2C read failed\n");
-        return;
+    HI_U8 e1 = 0, e2 = 0, g = 0;
+
+    if (ov6946_read(0x3501, &e1) == 0 &&
+        ov6946_read(0x3502, &e2) == 0 &&
+        ov6946_read(0x350B, &g) == 0) {
+        printf("[FPN] OV6946 regs: 3501=0x%02x 3502=0x%02x (exposure) 350B=0x%02x (gain)\n",
+               e1, e2, g);
+    } else {
+        printf("[FPN] OV6946 I2C read failed (ignored)\n");
     }
-    sensor_regs_saved = 1;
-    ov6946_write(0x3501, 0x00);
-    ov6946_write(0x3502, 0x00);
-    ov6946_write(0x350B, 0x00);
-    printf("[FPN] OV6946 exposure killed (was 3501=0x%02x 3502=0x%02x 350B=0x%02x)\n",
-           saved_exp_3501, saved_exp_3502, saved_gain_350b);
-}
-
-static void ov6946_restore_exposure(void)
-{
-    if (!sensor_regs_saved) return;
-    ov6946_write(0x3501, saved_exp_3501);
-    ov6946_write(0x3502, saved_exp_3502);
-    ov6946_write(0x350B, saved_gain_350b);
-    sensor_regs_saved = 0;
-    printf("[FPN] OV6946 exposure restored\n");
 }
 
 static void fpn_led_off(void)
@@ -160,9 +153,27 @@ fpn_status_t mpp_fpn_calibrate(VI_PIPE ViPipe)
     video_context_t *vctx = video_get_context();
     if (!vctx) { printf("[FPN] no video context\n"); return g_fpn_status; }
 
-    /* ── 准备暗环境 ── */
-    fpn_led_off();
-    ov6946_kill_exposure();
+    /* ── 准备暗环境: 只遮光, 保持工作增益 ──
+     * 文档 6.15.1: 先确定 FPN 最严重的 ISO, 在该 ISO 下固定增益, 遮光采黑帧。
+     * 所以这里记录当前工作曝光/增益, 转 MANUAL 冻结, 而不是压到最小。 */
+    ISP_EXP_INFO_S expInfo;
+    int have_exp_info = 0;
+
+    if (!g_fpn_skip_darken) {
+        if (HI_SUCCESS == HI_MPI_ISP_QueryExposureInfo(ViPipe, &expInfo)) {
+            have_exp_info = 1;
+            printf("[FPN] operating exposure: ExpTime=%u AGain=0x%x DGain=0x%x "
+                   "ISPDGain=0x%x ISO=%u\n",
+                   expInfo.u32ExpTime, expInfo.u32AGain, expInfo.u32DGain,
+                   expInfo.u32ISPDGain, expInfo.u32ISO);
+        } else {
+            printf("[FPN] QueryExposureInfo failed, will keep AE as-is\n");
+        }
+        ov6946_log_exposure();
+        fpn_led_off();
+    } else {
+        printf("[FPN] *lit-frame dump mode*: LED/exposure left untouched\n");
+    }
 
     ISP_EXPOSURE_ATTR_S savedExp;
     ISP_BLACK_LEVEL_S savedBL;
@@ -186,37 +197,24 @@ fpn_status_t mpp_fpn_calibrate(VI_PIPE ViPipe)
     printf("[FPN] VI in ONLINE mode\n");
     usleep(50000);
 
-    /* StartVi 重置传感器, 需再次杀曝光 */
-    ov6946_write(0x3501, 0x00);
-    ov6946_write(0x3502, 0x00);
-    ov6946_write(0x350B, 0x00);
-    printf("[FPN] exposure re-killed after VI start\n");
+    /* StartVi 会重置传感器, 用刚才记录的工作曝光/增益重新冻结 AE, 保证黑帧
+     * 是在"工作增益"下采集的 (文档 6.15.1 步骤 1)。黑电平不再拉到最大 ——
+     * 文档没有这个要求, 且它可能把要捕捉的列间差异一起压平。 */
+    if (!g_fpn_skip_darken && have_exp_info) {
+        ISP_EXPOSURE_ATTR_S exp;
 
-    /* ISP 曝光最小 + 黑电平最大 */
-    {
-        ISP_EXPOSURE_ATTR_S exp = savedExp;
-        exp.bByPass  = HI_TRUE;
+        HI_MPI_ISP_GetExposureAttr(ViPipe, &exp);
         exp.enOpType = OP_TYPE_MANUAL;
-        exp.stManual.enExpTimeOpType = OP_TYPE_MANUAL;
-        exp.stManual.enAGainOpType   = OP_TYPE_MANUAL;
-        exp.stManual.enDGainOpType   = OP_TYPE_MANUAL;
+        exp.stManual.enExpTimeOpType  = OP_TYPE_MANUAL;
+        exp.stManual.enAGainOpType    = OP_TYPE_MANUAL;
+        exp.stManual.enDGainOpType    = OP_TYPE_MANUAL;
         exp.stManual.enISPDGainOpType = OP_TYPE_MANUAL;
-        exp.stManual.u32ExpTime  = 1;
-        exp.stManual.u32AGain    = 0x400;
-        exp.stManual.u32DGain    = 0x400;
-        exp.stManual.u32ISPDGain = 0x400;
+        exp.stManual.u32ExpTime  = expInfo.u32ExpTime;
+        exp.stManual.u32AGain    = expInfo.u32AGain;
+        exp.stManual.u32DGain    = expInfo.u32DGain;
+        exp.stManual.u32ISPDGain = expInfo.u32ISPDGain;
         HI_MPI_ISP_SetExposureAttr(ViPipe, &exp);
-    }
-    {
-        ISP_BLACK_LEVEL_S bl;
-        HI_MPI_ISP_GetBlackLevelAttr(ViPipe, &bl);
-        bl.enOpType = OP_TYPE_MANUAL;
-        bl.au16BlackLevel[0] = 4095;
-        bl.au16BlackLevel[1] = 4095;
-        bl.au16BlackLevel[2] = 4095;
-        bl.au16BlackLevel[3] = 4095;
-        HI_MPI_ISP_SetBlackLevelAttr(ViPipe, &bl);
-        printf("[FPN] ISP: min exposure, max black level\n");
+        printf("[FPN] AE frozen at operating gain (ISO=%u)\n", expInfo.u32ISO);
     }
     usleep(100000);
 
@@ -267,15 +265,25 @@ fpn_status_t mpp_fpn_calibrate(VI_PIPE ViPipe)
     if (HI_SUCCESS == s32Ret) {
         /* 保存 FPN 文件 (参照 SDK SAMPLE_COMM_VI_SaveFpnFile) */
         char fn[128];
-        fpn_make_filename(fn, sizeof(fn), caliInfo.enFpnType,
-                          stPubAttr.stWndRect.u32Width,
-                          stPubAttr.stWndRect.u32Height, 16);
+        if (g_fpn_skip_darken) {
+            snprintf(fn, sizeof(fn), FPN_LIT_DUMP_FILE,
+                     stPubAttr.stWndRect.u32Width,
+                     stPubAttr.stWndRect.u32Height, 16);
+        } else {
+            fpn_make_filename(fn, sizeof(fn), caliInfo.enFpnType,
+                              stPubAttr.stWndRect.u32Width,
+                              stPubAttr.stWndRect.u32Height, 16);
+        }
         printf("[FPN] saving to %s...\n", fn);
         FILE *fp = fopen(fn, "wb");
         if (fp) {
             SAMPLE_COMM_VI_SaveFpnFile(stCaliAttr.enFpnType,
                                        &stCaliAttr.stFpnCaliFrame, fp);
             fclose(fp);
+            /* 程序以 root 运行, 默认 umask 下文件是 root:root 0600,
+             * 开发机上读不到。放开成 644 省去每次手动 chmod。 */
+            if (chmod(fn, 0644) != 0)
+                printf("[FPN] warning: chmod 0644 on %s failed\n", fn);
             printf("[FPN] saved %s\n", fn);
         } else {
             printf("[FPN] FAILED to open %s\n", fn);
@@ -295,7 +303,6 @@ fpn_status_t mpp_fpn_calibrate(VI_PIPE ViPipe)
 
 restore_vi:
     /* ── 切回 OFFLINE ── */
-    ov6946_restore_exposure();
     printf("[FPN] restoring VI to offline mode...\n");
     SAMPLE_COMM_VI_StopVi(&vctx->vi_config);
     vctx->vi_config.astViInfo[vctx->sensor->sns_id]
@@ -307,11 +314,12 @@ restore_vi:
     printf("[FPN] VI offline, exposure/BL/LED restored\n");
 
     /* ── 启用 FPN 校正 (参照 SDK: StartVi 后立即 SAMPLE_COMM_VI_FpnCorrectionConfig) ── */
-    if (g_fpn_status == FPN_STATUS_OK) {
+    /* 亮场采样模式下不启用校正 —— 那是纯观测, 不改设备状态 */
+    if (g_fpn_status == FPN_STATUS_OK && !g_fpn_skip_darken) {
         memset(&corrInfo, 0, sizeof(corrInfo));
         corrInfo.enOpType       = OP_TYPE_AUTO;
         corrInfo.enFpnType      = caliInfo.enFpnType;
-        corrInfo.u32Strength    = 0;
+        corrInfo.u32Strength    = FPN_CORRECTION_STRENGTH;
         corrInfo.enPixelFormat  = caliInfo.enPixelFormat;
         corrInfo.enCompressMode = caliInfo.enCompressMode;
 
@@ -323,7 +331,8 @@ restore_vi:
             printf("[FPN] enable correction failed: 0x%x\n", s32Ret);
             g_fpn_status = FPN_STATUS_FAILED;
         } else {
-            printf("[FPN] correction enabled\n");
+            printf("[FPN] correction enabled (strength=%d)\n",
+                   corrInfo.u32Strength);
         }
     }
 
@@ -365,7 +374,7 @@ fpn_status_t mpp_fpn_load(VI_PIPE ViPipe)
         memset(&corrInfo, 0, sizeof(corrInfo));
         corrInfo.enOpType       = OP_TYPE_AUTO;
         corrInfo.enFpnType      = ISP_FPN_TYPE_FRAME;
-        corrInfo.u32Strength    = 0;
+        corrInfo.u32Strength    = FPN_CORRECTION_STRENGTH;
         corrInfo.enPixelFormat  = PIXEL_FORMAT_RGB_BAYER_16BPP;
         corrInfo.enCompressMode = COMPRESS_MODE_NONE;
 
@@ -380,7 +389,8 @@ fpn_status_t mpp_fpn_load(VI_PIPE ViPipe)
     }
 
     g_fpn_status = FPN_STATUS_OK;
-    printf("[FPN] loaded calibration, correction enabled\n");
+    printf("[FPN] loaded calibration, correction enabled (strength=%d)\n",
+           FPN_CORRECTION_STRENGTH);
     return g_fpn_status;
 }
 
@@ -411,7 +421,7 @@ fpn_status_t mpp_fpn_load_file_only(VI_PIPE ViPipe)
     memset(&corrInfo, 0, sizeof(corrInfo));
     corrInfo.enOpType       = OP_TYPE_AUTO;
     corrInfo.enFpnType      = ISP_FPN_TYPE_FRAME;
-    corrInfo.u32Strength    = 0;
+    corrInfo.u32Strength    = FPN_CORRECTION_STRENGTH;
     corrInfo.enPixelFormat  = PIXEL_FORMAT_RGB_BAYER_16BPP;
     corrInfo.enCompressMode = COMPRESS_MODE_NONE;
 
@@ -425,7 +435,8 @@ fpn_status_t mpp_fpn_load_file_only(VI_PIPE ViPipe)
     }
 
     g_fpn_status = FPN_STATUS_OK;
-    printf("[FPN] loaded calibration (reused session), correction enabled\n");
+    printf("[FPN] loaded calibration (reused session), correction enabled (strength=%d)\n",
+           corrInfo.u32Strength);
     return g_fpn_status;
 }
 
@@ -435,4 +446,88 @@ fpn_status_t mpp_fpn_retry(VI_PIPE ViPipe)
 {
     printf("[FPN] manual retry...\n");
     return mpp_fpn_calibrate(ViPipe);
+}
+
+/* ── 调试: 采一帧亮场数据 ── */
+
+fpn_status_t mpp_fpn_dump_lit(VI_PIPE ViPipe)
+{
+    fpn_status_t ret;
+
+    printf("[FPN] dumping a LIT frame (LED/exposure untouched)...\n");
+    g_fpn_skip_darken = 1;
+    ret = mpp_fpn_calibrate(ViPipe);
+    g_fpn_skip_darken = 0;
+
+    printf("[FPN] lit dump done, ret=%d\n", ret);
+    return ret;
+}
+
+/* ── 在运行中的管线上执行一次 FPN 采样 ──
+ * 切换 VI-VPSS 在线/离线模式要求 VPSS 处于停止状态, 所以必须先解绑并停掉
+ * VPSS, 采样完再重建、重绑。设置页的手动校准和调试用的亮场采样共用这里,
+ * 避免两处各写一份而逐渐分叉 (踩过的坑: 漏掉停 VPSS 会导致
+ * SAMPLE_COMM_VI_SetParam 报 0xa0028009 而切模式失败)。
+ * lit: 0 = 正常暗场校准, 1 = 亮场采样(跳过变暗步骤) */
+fpn_status_t mpp_fpn_calibrate_running(int lit)
+{
+    video_context_t *vc = video_get_context();
+    VPSS_GRP_ATTR_S grp;
+    VPSS_CHN_ATTR_S chn[VPSS_MAX_PHY_CHN_NUM];
+    HI_BOOL ab[VPSS_MAX_PHY_CHN_NUM];
+    fpn_status_t ret;
+    HI_S32 r;
+
+    if (!vc) {
+        printf("[FPN] no video context\n");
+        return FPN_STATUS_FAILED;
+    }
+
+    printf("[FPN] stopping preview for %s...\n", lit ? "lit dump" : "calibration");
+    vc->b_running = HI_FALSE;
+    video_stop(vc);
+    SAMPLE_COMM_VPSS_UnBind_VO(vc->vpss_grp, vc->vpss_chn, vc->vo_dev, vc->vo_chn);
+    SAMPLE_COMM_VI_UnBind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
+    memset(ab, 0, sizeof(ab));
+    ab[vc->vpss_chn] = HI_TRUE;
+    SAMPLE_COMM_VPSS_Stop(vc->vpss_grp, ab);
+
+    ret = lit ? mpp_fpn_dump_lit(vc->vi_pipe)
+              : mpp_fpn_calibrate(vc->vi_pipe);
+    printf("[FPN] sampling returned %d, rebuilding VPSS...\n", ret);
+
+    memset(&grp, 0, sizeof(grp));
+    grp.stFrameRate.s32SrcFrameRate = -1;
+    grp.stFrameRate.s32DstFrameRate = -1;
+    grp.enDynamicRange = DYNAMIC_RANGE_SDR8;
+    grp.enPixelFormat  = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
+    grp.u32MaxW = vc->sensor->width;
+    grp.u32MaxH = vc->sensor->height;
+    grp.bNrEn   = HI_FALSE;                 /* 3DNR 关闭 */
+    grp.stNrAttr.enCompressMode  = COMPRESS_MODE_FRAME;
+    grp.stNrAttr.enNrMotionMode  = NR_MOTION_MODE_NORMAL;
+
+    memset(chn, 0, sizeof(chn));
+    chn[vc->vpss_chn].u32Width         = vc->sensor->width;
+    chn[vc->vpss_chn].u32Height        = vc->sensor->height;
+    chn[vc->vpss_chn].enChnMode        = VPSS_CHN_MODE_USER;
+    chn[vc->vpss_chn].enCompressMode   = COMPRESS_MODE_NONE;
+    chn[vc->vpss_chn].enDynamicRange   = DYNAMIC_RANGE_SDR8;
+    chn[vc->vpss_chn].enVideoFormat    = VIDEO_FORMAT_LINEAR;
+    chn[vc->vpss_chn].enPixelFormat    = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
+    chn[vc->vpss_chn].stFrameRate.s32SrcFrameRate = (HI_S32)vc->sensor->fps;
+    chn[vc->vpss_chn].stFrameRate.s32DstFrameRate = (HI_S32)vc->sensor->fps;
+
+    memset(ab, 0, sizeof(ab));
+    ab[vc->vpss_chn] = HI_TRUE;
+    printf("[FPN] starting VPSS...\n");
+    r = SAMPLE_COMM_VPSS_Start(vc->vpss_grp, ab, &grp, chn);
+    printf("[FPN] VPSS start ret=0x%x\n", r);
+
+    SAMPLE_COMM_VI_Bind_VPSS(vc->vi_pipe, vc->vi_chn, vc->vpss_grp);
+    SAMPLE_COMM_VPSS_Bind_VO(vc->vpss_grp, vc->vpss_chn, vc->vo_dev, vc->vo_chn);
+    video_start(vc);
+    printf("[FPN] video restarted\n");
+
+    return ret;
 }

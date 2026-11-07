@@ -35,4 +35,13 @@ fpn_status_t mpp_fpn_retry(VI_PIPE vi_pipe);
 /* 测试黑帧: 关LED+传感器曝光+ISP最小曝光, 不恢复 */
 void mpp_fpn_test_dark_frame(VI_PIPE vi_pipe);
 
+/* 调试: 采一帧亮场数据 (不关LED/不杀曝光), 存为 FPN_Lit_*.raw。
+ * 用于判断竖条纹是否存在于 VI 原始数据中 —— 与暗场 raw 逐列对比即可。
+ * 注意: 会切 VI 模式, 必须走 mpp_fpn_calibrate_running() 调用, 不能直接用。 */
+fpn_status_t mpp_fpn_dump_lit(VI_PIPE vi_pipe);
+
+/* 在运行中的管线上执行一次 FPN 采样 (自动拆/重建 VPSS)。
+ * lit: 0 = 暗场校准, 1 = 亮场采样。设置页手动校准与调试键都用这个。 */
+fpn_status_t mpp_fpn_calibrate_running(int lit);
+
 #endif /* MPP_FPN_H */

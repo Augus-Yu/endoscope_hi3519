@@ -18,6 +18,7 @@
 #include "hi3519_port/mpp_record.h"
 #include "hi3519_port/mpp_playback.h"
 #include "hi3519_port/sensor_config.h"
+#include "hi3519_port/mpp_fpn.h"
 
 static volatile int g_running = 1;
 static volatile int g_video_started = 0;
@@ -40,7 +41,7 @@ static void *keyboard_thread_fn(void *arg)
     (void)arg;
 
     fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK);
-    printf("[Keyboard] Monitoring stdin for 's' key (snapshot)\n");
+    printf("[Keyboard] 's' = UI snapshot, 'f' = dump lit frame for FPN debug\n");
 
     while (g_running) {
         char c;
@@ -48,6 +49,12 @@ static void *keyboard_thread_fn(void *arg)
             if (c == 's' || c == 'S') {
                 printf("[Keyboard] 's' pressed - taking UI snapshot\n");
                 endoscope_ui_snapshot_save(".");
+            } else if (c == 'f' || c == 'F') {
+                /* 调试: 采一帧亮场原始数据。务必等 AE 收敛、画面均匀明亮后再按,
+                 * 否则采到的是欠曝帧, 无法用于判断竖条纹。
+                 * 必须走 calibrate_running: 它负责先拆 VPSS, 否则切 VI 模式会失败。 */
+                printf("[Keyboard] 'f' pressed - dumping lit frame...\n");
+                mpp_fpn_calibrate_running(1);
             }
         }
         usleep(10000);
